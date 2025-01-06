@@ -3,7 +3,7 @@
 
 """
 This file is part of Commix Project (https://commixproject.com).
-Copyright (c) 2014-2023 Anastasios Stasinopoulos (@ancst).
+Copyright (c) 2014-2025 Anastasios Stasinopoulos (@ancst).
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,13 +24,14 @@ Notes: This tamper script works against Unix-like target(s).
 """
 
 __tamper__ = "nested"
+
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True
 
 double_quote = "\""
 def tamper(payload):
   def nested(payload):
-    if settings.TARGET_OS != "win":
+    if settings.TARGET_OS != settings.OS.WINDOWS:
       settings.TAMPER_SCRIPTS[__tamper__] = True
       if not menu.options.prefix and not menu.options.suffix:
         payload = double_quote + payload + double_quote
@@ -44,9 +45,9 @@ def tamper(payload):
           menu.options.suffix = menu.options.suffix + double_quote
         else:
           menu.options.suffix = double_quote
-      return payload  
-      
-  if settings.TARGET_OS != "win":
+      return payload
+
+  if settings.TARGET_OS != settings.OS.WINDOWS:
     if settings.EVAL_BASED_STATE != False:
       return payload
     else:
@@ -54,4 +55,4 @@ def tamper(payload):
   else:
     return payload
 
-# eof 
+# eof

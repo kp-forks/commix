@@ -150,6 +150,9 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter,
     basic_payloads = settings.ALTER_SHELL_BASIC_COMMAND_INJECTION_PAYLOADS
   else:
     basic_payloads = settings.BASIC_COMMAND_INJECTION_PAYLOADS
+
+  basic_payloads = [x.replace(settings.RANDOM_STRING_GENERATOR, settings.SINGLE_WHITESPACE.strip()) for x in basic_payloads]
+
   settings.CLASSIC_STATE = True
   try:
     # checks.perform_payload_modification(payload="")

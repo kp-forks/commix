@@ -103,6 +103,8 @@ def heuristic_request(url, http_request_method, check_parameter, payload, whites
   payload, prefix = parameters.prefixes(payload, prefix="")
   payload, suffix = parameters.suffixes(payload, suffix="")
   payload = payload.replace(settings.SINGLE_WHITESPACE, whitespace)
+  if settings.IS_JSON:
+    payload = _urllib.parse.unquote(payload)
   payload = checks.perform_payload_modification(payload)
   if settings.VERBOSITY_LEVEL >= 1:
     settings.print_data_to_stdout(settings.print_payload(payload))

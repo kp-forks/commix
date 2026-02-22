@@ -262,7 +262,7 @@ DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 DESCRIPTION = "The command injection exploiter"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "8"
+REVISION = "9"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -352,7 +352,7 @@ class HEURISTIC_TEST(object):
 #Basic heuristic checks for command injections
 RAND_A = random.randint(1,10000)
 RAND_B = random.randint(1,10000)
-CALC_STRING = str(RAND_A) + " %2B " + str(RAND_B)
+CALC_STRING = str(RAND_A) + "%2B" + str(RAND_B)
 BASIC_STRING = ""
 BASIC_COMMAND_INJECTION_PAYLOADS = []
 ALTER_SHELL_BASIC_STRING = " -c \"print(int(" + CALC_STRING + "))\""

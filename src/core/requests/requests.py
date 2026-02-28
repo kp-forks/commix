@@ -318,7 +318,7 @@ def request_failed(err_msg):
     else:
       return False
 
-  elif re.search(r"(connection\s*refused|timed?\s*out)", str(error_msg), re.IGNORECASE):
+  elif re.search(r"(connection\s*refused|timed?\s*out|no\s*route|unreachable)", str(error_msg), re.IGNORECASE):
     settings.MAX_RETRIES = 1
     err = "Unable to connect to the target URL"
     if menu.options.tor:

@@ -312,7 +312,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "91"
+REVISION = "92"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1420,9 +1420,6 @@ OS_CHECKS_NUM = 2
 
 # Options to explicitly mask in anonymous (unhandled exception) reports.
 SENSITIVE_OPTIONS = ["--data", "-d", "--cookie", "-p", "--url", "-u", "-x", "--auth-cred", "-r", "-l"]
-
-# Tranform payloads (via tamper script(s))
-TRANFROM_PAYLOAD = None
 
 CAPTCHA_DETECED = None
 

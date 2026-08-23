@@ -1786,7 +1786,9 @@ def tamper_scripts(stored_tamper_scripts):
   if menu.options.tamper:
     # Check the provided tamper script(s)
     available_scripts = []
-    provided_scripts = list(re.split(settings.PARAMETER_SPLITTING_REGEX, menu.options.tamper.lower()))
+    # Drop empty segments (trailing/double comma) and de-duplicate (preserving order) so a repeated name is validated, loaded, and reported only once.
+    raw_scripts = re.split(settings.PARAMETER_SPLITTING_REGEX, menu.options.tamper.lower())
+    provided_scripts = list(dict.fromkeys(script.strip() for script in raw_scripts if script.strip()))
     for script in sorted(glob(os.path.join(settings.TAMPER_SCRIPTS_PATH, "*.py"))):
       available_scripts.append(os.path.basename(script.split(".py")[0]))
     for script in provided_scripts:
@@ -2134,7 +2136,23 @@ def check_for_stored_tamper(payload):
   tamper_scripts(stored_tamper_scripts=True)
 
 """
-Perform payload modification
+Run a tamper script's tamper(), turning an exception or a non-string return value into a clean error instead of crashing raw or corrupting the payload.
+"""
+def _apply_tamper(script_name, module, payload):
+  try:
+    result = module.tamper(payload)
+  except Exception as err:
+    err_msg = "Tamper script '" + script_name + "' raised an unhandled error (" + str(err) + ")."
+    settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+    raise SystemExit()
+  if not isinstance(result, str):
+    err_msg = "Tamper script '" + script_name + "' returned an invalid payload type ('" + type(result).__name__ + "')."
+    settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+    raise SystemExit()
+  return result
+
+"""
+Perform payload modification. Fixed pipeline order, not --tamper's given order or a priority value - these OS-command tampers have real dependencies (quoting before space-encoding, encoding last), unlike commutative SQL tampers.
 """
 def perform_payload_modification(payload):
   try:
@@ -2142,106 +2160,104 @@ def perform_payload_modification(payload):
   except IndexError:
     settings.RAW_PAYLOAD = payload
     
-  for extra_http_headers in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    if extra_http_headers == "xforwardedfor":
-      from src.core.tamper import xforwardedfor
+  # "xforwardedfor" mutates request headers, not the payload string - applied directly in headers.do_check(), nothing to do here.
 
   for mod_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
     # Reverses (characterwise) the user-supplied operating system commands
     if mod_type == 'backticks':
       from src.core.tamper import backticks
-      payload = backticks.tamper(payload)
+      payload = _apply_tamper(mod_type, backticks, payload)
 
   for mod_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
     # Reverses (characterwise) the user-supplied operating system commands
     if mod_type == 'rev':
       from src.core.tamper import rev
-      payload = rev.tamper(payload)
+      payload = _apply_tamper(mod_type, rev, payload)
 
   for mod_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
     # Replaces each user-supplied operating system command character with random case
     if mod_type == 'randomcase':
       from src.core.tamper import randomcase
-      payload = randomcase.tamper(payload)
+      payload = _apply_tamper(mod_type, randomcase, payload)
 
   for print_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
     # printf to echo (for ascii to dec)
     if print_type == 'printf2echo':
       from src.core.tamper import printf2echo
-      payload = printf2echo.tamper(payload)
+      payload = _apply_tamper(print_type, printf2echo, payload)
 
   for sleep_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
     # sleep to timeout
     if sleep_type == 'sleep2timeout':
       from src.core.tamper import sleep2timeout
-      payload = sleep2timeout.tamper(payload)
+      payload = _apply_tamper(sleep_type, sleep2timeout, payload)
     # sleep to usleep
     if sleep_type == 'sleep2usleep':
       from src.core.tamper import sleep2usleep
-      payload = sleep2usleep.tamper(payload)
+      payload = _apply_tamper(sleep_type, sleep2usleep, payload)
 
   for quotes_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
     # Add double-quotes.
     if quotes_type == 'doublequotes':
       from src.core.tamper import doublequotes
-      payload = doublequotes.tamper(payload)
+      payload = _apply_tamper(quotes_type, doublequotes, payload)
     # Add single-quotes.
     if quotes_type == 'singlequotes':
       from src.core.tamper import singlequotes
-      payload = singlequotes.tamper(payload)
+      payload = _apply_tamper(quotes_type, singlequotes, payload)
 
   for mod_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
     # Add uninitialized variable.
     if mod_type == 'uninitializedvariable':
       from src.core.tamper import uninitializedvariable
-      payload = uninitializedvariable.tamper(payload)
+      payload = _apply_tamper(mod_type, uninitializedvariable, payload)
     if mod_type == 'slash2env':
       from src.core.tamper import slash2env
-      payload = slash2env.tamper(payload)
+      payload = _apply_tamper(mod_type, slash2env, payload)
     # Add backslashes.
     if mod_type == 'backslashes':
       from src.core.tamper import backslashes
-      payload = backslashes.tamper(payload)
+      payload = _apply_tamper(mod_type, backslashes, payload)
     # Add caret symbol.
     if mod_type == 'caret':
       from src.core.tamper import caret
-      payload = caret.tamper(payload)
+      payload = _apply_tamper(mod_type, caret, payload)
     # Transfomation to nested command
     if mod_type == 'nested':
       from src.core.tamper import nested
-      payload = nested.tamper(payload)
+      payload = _apply_tamper(mod_type, nested, payload)
     # Add dollar sign followed by an at-sign.
     if mod_type == 'dollaratsigns':
       from src.core.tamper import dollaratsigns
-      payload = dollaratsigns.tamper(payload)
+      payload = _apply_tamper(mod_type, dollaratsigns, payload)
 
   for space_mod in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
     # Encode spaces.
     if space_mod == 'space2ifs':
       from src.core.tamper import space2ifs
-      payload = space2ifs.tamper(payload)
+      payload = _apply_tamper(space_mod, space2ifs, payload)
     if space_mod == 'space2plus':
       from src.core.tamper import space2plus
-      payload = space2plus.tamper(payload)
+      payload = _apply_tamper(space_mod, space2plus, payload)
     if space_mod == 'space2htab':
       from src.core.tamper import space2htab
-      payload = space2htab.tamper(payload)
+      payload = _apply_tamper(space_mod, space2htab, payload)
     if space_mod == 'space2vtab':
       from src.core.tamper import space2vtab
-      payload = space2vtab.tamper(payload)
+      payload = _apply_tamper(space_mod, space2vtab, payload)
     if space_mod == 'multiplespaces':
       from src.core.tamper import multiplespaces
-      payload = multiplespaces.tamper(payload)
+      payload = _apply_tamper(space_mod, multiplespaces, payload)
 
   for encode_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
     # Encode payload to hex format.
     if encode_type == 'base64encode':
       from src.core.tamper import base64encode
-      payload = base64encode.tamper(payload)
+      payload = _apply_tamper(encode_type, base64encode, payload)
     # Encode payload to hex format.
     if encode_type == 'hexencode':
       from src.core.tamper import hexencode
-      payload = hexencode.tamper(payload)
+      payload = _apply_tamper(encode_type, hexencode, payload)
 
   return payload
 

@@ -41,14 +41,7 @@ def tamper(payload):
       payload = payload.replace("powershell.exe" + settings.WHITESPACES[0] + "-InputFormat" + settings.WHITESPACES[0] + "none" + settings.WHITESPACES[0] + "Start-Sleep" + settings.WHITESPACES[0] + "-s", "timeout")
     return payload
   if not settings.TIME_RELATED_ATTACK:
-    if settings.TRANFROM_PAYLOAD == None:
-      settings.TRANFROM_PAYLOAD = False
     return payload
-  else:
-    settings.TRANFROM_PAYLOAD = True
-    if settings.TRANFROM_PAYLOAD:
-      return sleep_to_timeout_ping(payload)
-
-  return payload
+  return sleep_to_timeout_ping(payload)
 
 # eof

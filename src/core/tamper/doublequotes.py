@@ -25,9 +25,6 @@ __tamper__ = "doublequotes"
 
 global obf_char
 
-if settings.TRANFROM_PAYLOAD != None:
-  settings.TRANFROM_PAYLOAD = None
-
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   obf_char = '""'
   settings.TAMPER_SCRIPTS[__tamper__] = True

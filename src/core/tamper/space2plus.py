@@ -22,15 +22,13 @@ Notes: This tamper script works against all targets.
 """
 
 __tamper__ = "space2plus"
+__priority__ = settings.PRIORITY.LOWER
 space2plus = _urllib.parse.quote_plus(settings.SINGLE_WHITESPACE)
-_warned_once = False
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True
 
 def tamper(payload):
-  global _warned_once
-
   if len(settings.WHITESPACES) != 0 and not settings.IS_JSON:
     if settings.WHITESPACES[0] == _urllib.parse.quote(settings.SINGLE_WHITESPACE):
       settings.WHITESPACES[0] = space2plus
@@ -38,11 +36,9 @@ def tamper(payload):
       settings.WHITESPACES.append(space2plus)
 
   else:
-    if not _warned_once:
-      warn_msg = "The tamper script '" + __tamper__ + "' is ineffective for JSON payloads. "
-      warn_msg += "Skipping tamper script."
-      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
-      _warned_once = True
+    warn_msg = "The tamper script '" + __tamper__ + "' is ineffective for JSON payloads. "
+    warn_msg += "Skipping tamper script."
+    settings.print_once(warn_msg)
 
   return payload
 

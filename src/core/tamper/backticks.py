@@ -15,6 +15,7 @@ For more see the file 'readme/COPYING' for copying permission.
 
 from src.utils import menu
 from src.utils import settings
+from src.core.injections.controller import checks
 
 
 """
@@ -23,6 +24,10 @@ Notes: This tamper script works against Unix-like target(s).
 """
 
 __tamper__ = "backticks"
+__priority__ = settings.PRIORITY.HIGHEST
+
+def dependencies():
+  return checks.tamper_dep_unix_only(__tamper__) or checks.tamper_dep_alter_shell_incompatible(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True

@@ -595,11 +595,8 @@ def cookie_injection(url, vuln_parameter, payload, http_request_method):
     headers.do_check(request)
     payload = checks.normalize_newlines(payload)
     if settings.INJECT_TAG in menu.options.cookie:
-      # Percent-encode before inserting into the cookie value - ";" is the
-      # cookie-attribute delimiter itself, so a raw separator/space/etc. in
-      # the payload would truncate or corrupt the cookie. PHP's $_COOKIE
-      # decodes this automatically, same as $_GET.
-      encoded_payload = _urllib.parse.quote(payload, safe=settings.SAFE_QUERY)
+      # Percent-encode before inserting into the cookie; raw delimiters or spaces can corrupt the value, and PHP's $_COOKIE decodes it automatically.
+      encoded_payload = _urllib.parse.quote(payload, safe=settings.query_safe_chars())
       cookie = checks.process_injectable_value(encoded_payload, menu.options.cookie)
       request.add_header(settings.COOKIE, cookie)
     try:

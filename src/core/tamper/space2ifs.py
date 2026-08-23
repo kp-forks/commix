@@ -15,6 +15,7 @@ For more see the file 'readme/COPYING' for copying permission.
 
 from src.utils import settings
 from src.thirdparty.six.moves import urllib as _urllib
+from src.core.injections.controller import checks
 
 """
 About: Replaces space character (%20) with the internal field separator ($IFS) in a given payload.
@@ -24,7 +25,11 @@ Notes: This tamper script works against Unix-like target(s).
 """
 
 __tamper__ = "space2ifs"
+__priority__ = settings.PRIORITY.LOWER
 space2ifs = "${IFS}"
+
+def dependencies():
+  return checks.tamper_dep_unix_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True

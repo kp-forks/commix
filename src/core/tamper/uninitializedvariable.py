@@ -17,6 +17,7 @@ import re
 import random
 import string
 from src.utils import settings
+from src.core.injections.controller import checks
 
 """
 About: Adds (randomly generated) uninitialized bash variables between the characters of each command in a given payload.
@@ -25,8 +26,10 @@ Reference: https://www.secjuice.com/web-application-firewall-waf-evasion/
 """
 
 __tamper__ = "uninitializedvariable"
+__priority__ = settings.PRIORITY.LOW
 
-global obf_char
+def dependencies():
+  return checks.tamper_dep_eval_incompatible(__tamper__) or checks.tamper_dep_unix_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   num = 2
@@ -57,14 +60,7 @@ def tamper(payload):
         )
 
     payload = ''.join(parts)
-
-    # Undo obfuscation for ignored words
-    for word in settings.IGNORE_TAMPER_TRANSFORMATION:
-      obf_word = obf_char.join(word[i:i+1] for i in range(-1, len(word), 1))
-      if obf_word in payload:
-        payload = payload.replace(obf_word, word)
-
-    return payload
+    return checks.tamper_restore_ignored_words(payload, obf_char)
 
   # Only apply on non-Windows targets
   if settings.TARGET_OS != settings.OS.WINDOWS:

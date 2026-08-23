@@ -13,9 +13,8 @@ the Free Software Foundation, either version 3 of the License, or
 For more see the file 'readme/COPYING' for copying permission.
 """
 
-import sys
-from src.utils import menu
 from src.utils import settings
+from src.core.injections.controller import checks
 
 """
 About: Replaces slashes (/) with environment variable value "${PATH%%u*}".
@@ -24,6 +23,10 @@ Reference: https://www.secjuice.com/bypass-strict-input-validation-with-remove-s
 """
 
 __tamper__ = "slash2env"
+__priority__ = settings.PRIORITY.LOW
+
+def dependencies():
+  return checks.tamper_dep_eval_incompatible(__tamper__) or checks.tamper_dep_unix_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True

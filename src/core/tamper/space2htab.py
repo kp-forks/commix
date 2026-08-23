@@ -22,6 +22,7 @@ Notes: This tamper script works against all targets.
 """
 
 __tamper__ = "space2htab"
+__priority__ = settings.PRIORITY.LOWER
 space2htab = "%09"
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:

@@ -119,7 +119,7 @@ def heuristic_request(url, http_request_method, check_parameter, payload, whites
   if menu.options.cookie and settings.INJECT_TAG in menu.options.cookie:
     payload = checks.payload_fixation(payload)
     # Percent-encode cookie values to safely handle delimiters and special characters.
-    encoded_payload = _urllib.parse.quote(payload, safe=settings.SAFE_QUERY)
+    encoded_payload = _urllib.parse.quote(payload, safe=settings.query_safe_chars())
     cookie = checks.process_injectable_value(encoded_payload, menu.options.cookie).encode(settings.DEFAULT_CODEC)
   else:
     cookie = checks.remove_tags(menu.options.cookie).encode(settings.DEFAULT_CODEC)
@@ -132,7 +132,7 @@ def heuristic_request(url, http_request_method, check_parameter, payload, whites
       data = settings.USER_DEFINED_POST_DATA.encode(settings.DEFAULT_CODEC)
   if settings.INJECT_TAG in url:
     # Encode query string, preserving delimiters and configured parameter delimiter
-    encoded_payload = _urllib.parse.quote(payload, safe=settings.SAFE_QUERY)
+    encoded_payload = _urllib.parse.quote(payload, safe=settings.query_safe_chars())
     tmp_url = checks.process_injectable_value(encoded_payload, url)
   else:
     tmp_url = checks.remove_tags(tmp_url)

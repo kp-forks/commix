@@ -132,6 +132,16 @@ def print_warning_msg(warn_msg):
   result = print_time() + WARNING_SIGN + str(warn_msg) + Style.RESET_ALL
   return result
 
+_PRINTED_ONCE_MESSAGES = set()
+
+"""
+Print each warning message once per run, deduping by raw text.
+"""
+def print_once(raw_msg):
+  if raw_msg not in _PRINTED_ONCE_MESSAGES:
+    _PRINTED_ONCE_MESSAGES.add(raw_msg)
+    print_data_to_stdout(print_warning_msg(raw_msg))
+
 # Print warning message
 def print_bold_warning_msg(warn_msg):
   result = print_time() +  WARNING_BOLD_SIGN + str(warn_msg) + Style.RESET_ALL
@@ -312,7 +322,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "94"
+REVISION = "95"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -375,6 +385,14 @@ VALUE_BOUNDARIES = r'[\\/](.+?)[\\/]'
 SAFE_PATH = "*%/"
 # Safe characters to keep unescaped in query strings
 SAFE_QUERY = SAFE_PATH + "=?&"
+
+"""
+Safe query-string characters; allow '+' only when it is the active whitespace substitute.
+"""
+def query_safe_chars():
+  if len(WHITESPACES) != 0 and WHITESPACES[0] == "+":
+    return SAFE_QUERY + "+"
+  return SAFE_QUERY
 
 # Default (windows) target host's python interpreter
 WIN_PYTHON_INTERPRETER = "python.exe"
@@ -1099,6 +1117,12 @@ BASE64_RECOGNITION_REGEX = r'^[A-Za-z0-9+/]+[=]{0,2}$'
 # Hex encoded characters recognition
 HEX_RECOGNITION_REGEX = r'^(0[xX])?[0-9a-fA-F]+$'
 
+# Ignore short values that can coincidentally match the base64/hex charset.
+ENCODING_MIN_LENGTH = 8
+
+# Minimum printable-character ratio for treating a base64/hex charset match as encoded.
+ENCODING_PLAUSIBILITY_RATIO = 0.85
+
 DIRECTORY_REGEX = r'(?:/[^/]+)+?/\w+\.\w+'
 
 # TFB Decimal
@@ -1210,42 +1234,17 @@ TAMPER_SCRIPTS = {
                   "rev": False
                  }
 
-UNIX_NOT_SUPPORTED_TAMPER_SCRIPTS = [
-                  "caret",
-                  "space2vtab"
-]
-
-WIN_NOT_SUPPORTED_TAMPER_SCRIPTS = [
-                  "backslashes",
-                  "dollaratsigns",
-                  "backticks",
-                  "nested",
-                  "singlequotes",
-                  "slash2env",
-                  "sleep2usleep",
-                  "printf2echo",
-                  "space2ifs",
-                  "uninitializedvariable",
-                  "randomcase",
-                  "rev"
-]
-
-EVAL_NOT_SUPPORTED_TAMPER_SCRIPTS = [
-                  "backslashes",
-                  "caret",
-                  "dollaratsigns",
-                  "doublequotes",
-                  "nested",
-                  "singlequotes",
-                  "slash2env",
-                  "printf2echo",
-                  "uninitializedvariable"
-]
-
-TIME_RELATED_TAMPER_SCRIPTS = [
-                  "sleep2usleep",
-                  "sleep2timeout"
-]
+# Execution priority for tamper scripts; each script defines its own __priority__.
+class PRIORITY(object):
+  HIGHEST = 100
+  HIGHER = 75
+  HIGH = 50
+  ABOVE_NORMAL = 25
+  NORMAL = 0
+  BELOW_NORMAL = -25
+  LOW = -50
+  LOWER = -75
+  LOWEST = -100
 
 IGNORE_TAMPER_TRANSFORMATION = [
                   "IFS",

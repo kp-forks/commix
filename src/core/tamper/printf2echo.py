@@ -14,6 +14,7 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 from src.utils import settings
+from src.core.injections.controller import checks
 
 """
 About: Replaces the printf-based ASCII to Decimal `printf "%d" "'$char'"` with `echo -n $char | od -An -tuC | xargs`.
@@ -21,6 +22,10 @@ Notes: This tamper script works against Unix-like target(s)
 """
 
 __tamper__ = "printf2echo"
+__priority__ = settings.PRIORITY.ABOVE_NORMAL
+
+def dependencies():
+  return checks.tamper_dep_eval_incompatible(__tamper__) or checks.tamper_dep_unix_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True

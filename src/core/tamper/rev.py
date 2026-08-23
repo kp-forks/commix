@@ -14,6 +14,7 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 from src.utils import settings
+from src.core.injections.controller import checks
 
 """
 About: Reverses (characterwise) the user-supplied operating system commands in a given payload.
@@ -23,6 +24,10 @@ References: [1] https://github.com/commixproject/commix/issues/408
 """
 
 __tamper__ = "rev"
+__priority__ = settings.PRIORITY.HIGHER
+
+def dependencies():
+  return checks.tamper_dep_unix_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True
@@ -36,10 +41,7 @@ def tamper(payload):
         rev_cmd = "$(echo " + settings.USER_APPLIED_CMD[::-1] + "|rev)"
       payload = settings.RAW_PAYLOAD.replace(settings.USER_APPLIED_CMD, rev_cmd)
       if len(settings.WHITESPACES) != 0:
-        try:
-          payload = payload.replace(settings.SINGLE_WHITESPACE, settings.WHITESPACES[0])
-        except Exception:
-          pass
+        payload = payload.replace(settings.SINGLE_WHITESPACE, settings.WHITESPACES[0])
   return payload
 
 # eof

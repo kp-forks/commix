@@ -280,13 +280,13 @@ def do_time_related_proccess(url, timesec, filename, http_request_method, url_ti
     from src.core.injections.semiblind.techniques.tempfile_based import tfb_payloads as payloads
 
   if not settings.LOAD_SESSION or technique not in settings.STORED_TECHNIQUES:
+    # Re-check tamper compatibility now that the technique and target OS are known, before its title is shown.
+    checks.tamper_scripts(stored_tamper_scripts=True)
     # Skip redundant progress output when the fallback already announced the technique.
     if settings.SKIP_NEXT_TECHNIQUE_TITLE == technique:
       settings.SKIP_NEXT_TECHNIQUE_TITLE = None
     else:
       checks.testing_technique_title(injection_type, technique)
-    # Re-check tamper compatibility now that the technique and target OS are known.
-    checks.tamper_scripts(stored_tamper_scripts=True)
 
   prefixes = settings.PREFIXES
   suffixes = settings.SUFFIXES
@@ -567,13 +567,13 @@ def do_results_based_proccess(url, timesec, filename, http_request_method, injec
     separators = settings.SEPARATORS
 
   if not settings.LOAD_SESSION or technique not in settings.STORED_TECHNIQUES:
+    # Re-check tamper compatibility now that the technique and target OS are known, before its title is shown.
+    checks.tamper_scripts(stored_tamper_scripts=True)
     # Skip redundant progress output when the fallback already announced the technique.
     if settings.SKIP_NEXT_TECHNIQUE_TITLE == technique:
       settings.SKIP_NEXT_TECHNIQUE_TITLE = None
     else:
       checks.testing_technique_title(injection_type, technique)
-    # Re-check tamper compatibility now that the technique and target OS are known.
-    checks.tamper_scripts(stored_tamper_scripts=True)
     if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
       url_time_response = 0
       tmp_path = checks.check_tmp_path(url, timesec, filename, http_request_method, url_time_response)

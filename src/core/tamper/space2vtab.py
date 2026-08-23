@@ -15,6 +15,7 @@ For more see the file 'readme/COPYING' for copying permission.
 
 from src.utils import settings
 from src.thirdparty.six.moves import urllib as _urllib
+from src.core.injections.controller import checks
 
 """
 About: Replaces space character (%20) with vertical tab (%0b) in a given payload.
@@ -22,7 +23,11 @@ Notes: This tamper script works against Windows targets.
 """
 
 __tamper__ = "space2vtab"
+__priority__ = settings.PRIORITY.LOWER
 space2vtab = "%0b"
+
+def dependencies():
+  return checks.tamper_dep_windows_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True

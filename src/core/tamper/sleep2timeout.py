@@ -14,8 +14,6 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 import re
-import sys
-from src.utils import menu
 from src.utils import settings
 from src.core.injections.controller import checks
 
@@ -27,6 +25,10 @@ Notes: This tamper script works against all targets.
 """
 
 __tamper__ = "sleep2timeout"
+__priority__ = settings.PRIORITY.NORMAL
+
+def dependencies():
+  return checks.tamper_dep_time_related_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True

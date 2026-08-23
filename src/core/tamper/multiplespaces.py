@@ -22,14 +22,14 @@ Notes: Useful to bypass very weak and bespoke web application firewalls that has
 """
 
 __tamper__ = "multiplespaces"
+__priority__ = settings.PRIORITY.LOWER
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True
 
 def tamper(payload):
-  if settings.TAMPER_SCRIPTS[__tamper__]:
-    for i in range(0, len(settings.WHITESPACES)):
-      settings.WHITESPACES[i] = settings.WHITESPACES[i] * random.randrange(3, 8)
+  for i in range(0, len(settings.WHITESPACES)):
+    settings.WHITESPACES[i] = settings.WHITESPACES[i] * random.randrange(3, 8)
   return payload
 
 # eof

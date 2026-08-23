@@ -14,8 +14,6 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 import re
-import sys
-from src.utils import menu
 from src.utils import settings
 from src.core.injections.controller import checks
 
@@ -26,6 +24,10 @@ Reference: http://man7.org/linux/man-pages/man3/usleep.3.html
 """
 
 __tamper__ = "sleep2usleep"
+__priority__ = settings.PRIORITY.NORMAL
+
+def dependencies():
+  return checks.tamper_dep_time_related_only(__tamper__) or checks.tamper_dep_unix_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True

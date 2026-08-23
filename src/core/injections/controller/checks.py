@@ -23,6 +23,7 @@ import socket
 import random
 import string
 import base64
+import importlib
 import gzip
 import zlib
 import traceback
@@ -1780,6 +1781,52 @@ def list_tamper_scripts():
     settings.print_data_to_stdout(message.rstrip())
     
 """
+Shared building blocks for tamper scripts' own dependencies() checks - each script decides which
+of these apply to it, instead of a central list here trying to track every script's constraints.
+"""
+def tamper_dep_windows_only(tamper_name):
+  if settings.TARGET_OS != settings.OS.WINDOWS:
+    return "Unix-like targets do not support the usage of '" + tamper_name + ".py'. Skipping tamper script."
+
+def tamper_dep_unix_only(tamper_name):
+  if settings.TARGET_OS == settings.OS.WINDOWS:
+    return "Windows targets do not support the usage of '" + tamper_name + ".py'. Skipping tamper script."
+
+def tamper_dep_eval_incompatible(tamper_name):
+  eval_in_scope = len(menu.options.tech) == 0 or "e" in menu.options.tech
+  if eval_in_scope and settings.EVAL_BASED_STATE != False:
+    return "The dynamic code evaluation technique does not support the usage of '" + tamper_name + ".py'. Skipping tamper script."
+
+def tamper_dep_time_related_only(tamper_name):
+  time_related_in_scope = len(menu.options.tech) == 0 or "t" in menu.options.tech or "f" in menu.options.tech
+  if not time_related_in_scope:
+    return "Only time-related techniques support the usage of '" + tamper_name + ".py'."
+
+def tamper_dep_alter_shell_incompatible(tamper_name):
+  if menu.options.alter_shell:
+    return "Option '--alter-shell' does not support the usage of '" + tamper_name + ".py'. Skipping tamper script."
+
+"""
+Undo a per-character obfuscation (obf_char inserted before each letter) on any whole word that settings.IGNORE_TAMPER_TRANSFORMATION says must survive intact (e.g. shell keywords like 'if'/'then').
+"""
+def tamper_restore_ignored_words(payload, obf_char):
+  for word in settings.IGNORE_TAMPER_TRANSFORMATION:
+    obf_word = obf_char.join(word[i:i+1] for i in range(-1, len(word), 1))
+    if obf_word in payload:
+      payload = payload.replace(obf_word, word)
+  return payload
+
+"""
+base64encode/hexencode consume the whole payload as one blob, so they can't coexist with
+space2plus rewriting whitespace inside it first - fatal (not a skippable warning like the rest).
+"""
+def tamper_check_space2plus_conflict(tamper_name):
+  if len(settings.WHITESPACES) != 0 and settings.WHITESPACES[0] == _urllib.parse.quote_plus(settings.SINGLE_WHITESPACE):
+    err_msg = "Tamper script '" + tamper_name + "' is unlikely to work when combined with the tamper script 'space2plus'."
+    settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+    raise SystemExit()
+
+"""
 Tamper script checker
 """
 def tamper_scripts(stored_tamper_scripts):
@@ -1802,42 +1849,40 @@ def tamper_scripts(stored_tamper_scripts):
     if not stored_tamper_scripts:
       info_msg = "Loaded tamper script" + ('s', '')[len(provided_scripts) == 1] + ": "
       settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+    priorities = {}
     for script in provided_scripts:
       # Register each script once; duplicate entries would apply the same tamper twice.
       if script not in settings.MULTI_ENCODED_PAYLOAD:
         settings.MULTI_ENCODED_PAYLOAD.append(script)
-      import_script = str(settings.TAMPER_SCRIPTS_PATH + script + ".py").replace("/",".").split(".py")[0]
       if not stored_tamper_scripts:
-        settings.print_data_to_stdout(settings.SUB_CONTENT_SIGN + import_script.split(".")[-1])
-      warn_msg = ""
-      if not settings.TIME_RELATED_ATTACK and script in settings.TIME_RELATED_TAMPER_SCRIPTS:
-        warn_msg = "Only time-related techniques support the usage of '" + script  + ".py'."
-        settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
-      warn_msg = ""
-      if settings.EVAL_BASED_STATE != False and script in settings.EVAL_NOT_SUPPORTED_TAMPER_SCRIPTS:
-        warn_msg = "The dynamic code evaluation technique does "
-      elif settings.TARGET_OS == settings.OS.WINDOWS and script in settings.WIN_NOT_SUPPORTED_TAMPER_SCRIPTS:
-        warn_msg = "Windows targets do "
-      elif settings.TARGET_OS != settings.OS.WINDOWS and script in settings.UNIX_NOT_SUPPORTED_TAMPER_SCRIPTS:
-        warn_msg = "Unix-like targets do "
-      elif "backticks" == script and menu.options.alter_shell:
-          warn_msg = "Option '--alter-shell' "
-      if len(warn_msg) != 0:
+        settings.print_data_to_stdout(settings.SUB_CONTENT_SIGN + script)
+      try:
+        module = importlib.import_module("src.core.tamper." + script)
+      except (ImportError, ValueError):
+        continue
+      if not hasattr(module, "__tamper__"):
+        err_msg = "Missing variable '__tamper__' "
+        err_msg += "in tamper script '" + script + "'."
+        settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+        raise SystemExit()
+      priorities[script] = getattr(module, "__priority__", settings.PRIORITY.NORMAL)
+      # Each script declares its own incompatibilities via dependencies() (e.g. OS, active
+      # technique, other options) instead of a central list here having to track them all.
+      warn_msg = module.dependencies() if hasattr(module, "dependencies") else None
+      if warn_msg:
         # Always warn and drop incompatible scripts, including resumed techniques.
-        warn_msg = warn_msg + "not support the usage of '" + script + ".py'. Skipping tamper script."
-        settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+        settings.print_once(warn_msg)
         if script in settings.MULTI_ENCODED_PAYLOAD:
           settings.MULTI_ENCODED_PAYLOAD.remove(script)
-      else:
-        try:
-          module = __import__(import_script, fromlist=[None])
-          if not hasattr(module, "__tamper__"):
-            err_msg = "Missing variable '__tamper__' "
-            err_msg += "in tamper script '" + import_script.split(".")[-1] + "'."
-            settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
-            raise SystemExit()
-        except (ImportError, ValueError) as err_msg:
-          pass
+
+    # Respect each tamper script's declared execution tier; offer to auto-sort conflicting --tamper order.
+    current_order = [script for script in settings.MULTI_ENCODED_PAYLOAD if script in priorities]
+    sorted_order = sorted(current_order, key=lambda script: -priorities[script])
+    if current_order != sorted_order:
+      warn_msg = "It appears that you have mixed the order of the provided tamper scripts. "
+      warn_msg += "Do you want to auto resolve this? [Y/n] "
+      if common.read_input(warn_msg, default="Y", check_batch=True).lower() != "n":
+        settings.MULTI_ENCODED_PAYLOAD = sorted_order + [script for script in settings.MULTI_ENCODED_PAYLOAD if script not in priorities]
 
     # Using too many tamper scripts is usually not a good idea. :P
     _ = False
@@ -2014,12 +2059,22 @@ def check_quotes(payload):
         menu.options.tamper = "singlequotes"
 
 """
+Charset matches alone do not prove encoding; require a mostly printable decoded result to confirm a real encoding.
+"""
+def decoded_text_is_plausible(text):
+  if not text:
+    return False
+  printable = sum(1 for char in text if char in string.printable and char not in "\x0b\x0c")
+  return printable / len(text) >= settings.ENCODING_PLAUSIBILITY_RATIO
+
+"""
 Check for applied (hex / b64) encoders.
 """
 def check_encoders(payload):
   is_decoded = False
   encoded_with = ""
   check_value = payload
+  long_enough = len(check_value.strip()) >= settings.ENCODING_MIN_LENGTH
 
   settings.MULTI_ENCODED_PAYLOAD = list(dict.fromkeys(settings.MULTI_ENCODED_PAYLOAD))
   for encode_type in list(settings.MULTI_ENCODED_PAYLOAD):
@@ -2041,12 +2096,13 @@ def check_encoders(payload):
           common.invalid_option(procced_option)
           pass
 
-  if (len(check_value.strip()) % 4 == 0) and \
+  if long_enough and (len(check_value.strip()) % 4 == 0) and \
     re.match(settings.BASE64_RECOGNITION_REGEX, check_value) and \
     not re.match(settings.HEX_RECOGNITION_REGEX, check_value):
       _payload = base64.b64decode(check_value)
       try:
-        if not "\\x" in _payload.decode(settings.DEFAULT_CODEC):
+        decoded_text = _payload.decode(settings.DEFAULT_CODEC)
+        if not "\\x" in decoded_text and decoded_text_is_plausible(decoded_text):
           settings.MULTI_ENCODED_PAYLOAD.append("base64encode")
           decoded_payload = _payload
           encoded_with = "base64"
@@ -2058,9 +2114,9 @@ def check_encoders(payload):
       except Exception:
         pass
 
-  elif re.match(settings.HEX_RECOGNITION_REGEX, check_value):
+  elif long_enough and re.match(settings.HEX_RECOGNITION_REGEX, check_value):
     decoded_payload, _ = hexdecode(check_value)
-    if _:
+    if _ and decoded_text_is_plausible(decoded_payload):
       settings.MULTI_ENCODED_PAYLOAD.append("hexencode")
       encoded_with = "hex"
       if (len(check_value.strip()) % 4 == 0) and \
@@ -2068,7 +2124,8 @@ def check_encoders(payload):
         not re.match(settings.HEX_RECOGNITION_REGEX, decoded_payload):
           _payload = base64.b64decode(check_value)
           try:
-            if not "\\x" in _payload.decode(settings.DEFAULT_CODEC):
+            decoded_text = _payload.decode(settings.DEFAULT_CODEC)
+            if not "\\x" in decoded_text and decoded_text_is_plausible(decoded_text):
               settings.MULTI_ENCODED_PAYLOAD.append("base64encode")
               decoded_payload = _payload
               encoded_with = "base64"
@@ -2082,8 +2139,8 @@ def check_encoders(payload):
 
   if is_decoded:
     while True:
-      message = "The value appears to be " + encoded_with + "-encoded. "
-      message += "Do you want to use the '" + encoded_with + "encode' tamper script? [Y/n] "
+      message = "The value appears to already be " + encoded_with + "-encoded. "
+      message += "Do you want to load the '" + encoded_with + "encode' tamper script to keep it that way? [Y/n] "
       procced_option = common.read_input(message, default="Y", check_batch=True)
       if procced_option in settings.CHOICE_YES:
         break
@@ -2098,6 +2155,13 @@ def check_encoders(payload):
       else:
         common.invalid_option(procced_option)
         pass
+
+  if is_decoded and (encoded_with + "encode") in settings.MULTI_ENCODED_PAYLOAD:
+    # Keep menu.options.tamper in sync with auto-detected tampers so resumed sessions restore them.
+    tamper_name = encoded_with + "encode"
+    provided = re.split(settings.PARAMETER_SPLITTING_REGEX, menu.options.tamper.lower()) if menu.options.tamper else []
+    if tamper_name not in provided:
+      menu.options.tamper = (menu.options.tamper + "," + tamper_name) if menu.options.tamper else tamper_name
 
   if is_decoded:
     return _urllib.parse.quote(decoded_payload), encoded_with
@@ -2125,14 +2189,13 @@ def recognise_payload(payload):
   return check_encoders(payload)
   
 """
-Check for stored payloads and enable tamper scripts.
+Restore stored payloads and tampers as-is when resuming a session; skip re-detection and prompts.
 """
 def check_for_stored_tamper(payload):
-  decoded_payload, encoded_with = recognise_payload(payload)
-  whitespace_check(decoded_payload)
-  other_symbols(decoded_payload)
-  check_backslashes(decoded_payload)
-  check_quotes(decoded_payload)
+  whitespace_check(payload)
+  other_symbols(payload)
+  check_backslashes(payload)
+  check_quotes(payload)
   tamper_scripts(stored_tamper_scripts=True)
 
 """
@@ -2152,112 +2215,21 @@ def _apply_tamper(script_name, module, payload):
   return result
 
 """
-Perform payload modification. Fixed pipeline order, not --tamper's given order or a priority value - these OS-command tampers have real dependencies (quoting before space-encoding, encoding last), unlike commutative SQL tampers.
+Apply tampers in dependency order across groups, preserving the user's --tamper order within each group.
 """
 def perform_payload_modification(payload):
   try:
     settings.RAW_PAYLOAD = payload.replace(settings.WHITESPACES[0], settings.SINGLE_WHITESPACE)
   except IndexError:
     settings.RAW_PAYLOAD = payload
-    
-  # "xforwardedfor" mutates request headers, not the payload string - applied directly in headers.do_check(), nothing to do here.
 
-  for mod_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    # Reverses (characterwise) the user-supplied operating system commands
-    if mod_type == 'backticks':
-      from src.core.tamper import backticks
-      payload = _apply_tamper(mod_type, backticks, payload)
-
-  for mod_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    # Reverses (characterwise) the user-supplied operating system commands
-    if mod_type == 'rev':
-      from src.core.tamper import rev
-      payload = _apply_tamper(mod_type, rev, payload)
-
-  for mod_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    # Replaces each user-supplied operating system command character with random case
-    if mod_type == 'randomcase':
-      from src.core.tamper import randomcase
-      payload = _apply_tamper(mod_type, randomcase, payload)
-
-  for print_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    # printf to echo (for ascii to dec)
-    if print_type == 'printf2echo':
-      from src.core.tamper import printf2echo
-      payload = _apply_tamper(print_type, printf2echo, payload)
-
-  for sleep_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    # sleep to timeout
-    if sleep_type == 'sleep2timeout':
-      from src.core.tamper import sleep2timeout
-      payload = _apply_tamper(sleep_type, sleep2timeout, payload)
-    # sleep to usleep
-    if sleep_type == 'sleep2usleep':
-      from src.core.tamper import sleep2usleep
-      payload = _apply_tamper(sleep_type, sleep2usleep, payload)
-
-  for quotes_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    # Add double-quotes.
-    if quotes_type == 'doublequotes':
-      from src.core.tamper import doublequotes
-      payload = _apply_tamper(quotes_type, doublequotes, payload)
-    # Add single-quotes.
-    if quotes_type == 'singlequotes':
-      from src.core.tamper import singlequotes
-      payload = _apply_tamper(quotes_type, singlequotes, payload)
-
-  for mod_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    # Add uninitialized variable.
-    if mod_type == 'uninitializedvariable':
-      from src.core.tamper import uninitializedvariable
-      payload = _apply_tamper(mod_type, uninitializedvariable, payload)
-    if mod_type == 'slash2env':
-      from src.core.tamper import slash2env
-      payload = _apply_tamper(mod_type, slash2env, payload)
-    # Add backslashes.
-    if mod_type == 'backslashes':
-      from src.core.tamper import backslashes
-      payload = _apply_tamper(mod_type, backslashes, payload)
-    # Add caret symbol.
-    if mod_type == 'caret':
-      from src.core.tamper import caret
-      payload = _apply_tamper(mod_type, caret, payload)
-    # Transfomation to nested command
-    if mod_type == 'nested':
-      from src.core.tamper import nested
-      payload = _apply_tamper(mod_type, nested, payload)
-    # Add dollar sign followed by an at-sign.
-    if mod_type == 'dollaratsigns':
-      from src.core.tamper import dollaratsigns
-      payload = _apply_tamper(mod_type, dollaratsigns, payload)
-
-  for space_mod in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    # Encode spaces.
-    if space_mod == 'space2ifs':
-      from src.core.tamper import space2ifs
-      payload = _apply_tamper(space_mod, space2ifs, payload)
-    if space_mod == 'space2plus':
-      from src.core.tamper import space2plus
-      payload = _apply_tamper(space_mod, space2plus, payload)
-    if space_mod == 'space2htab':
-      from src.core.tamper import space2htab
-      payload = _apply_tamper(space_mod, space2htab, payload)
-    if space_mod == 'space2vtab':
-      from src.core.tamper import space2vtab
-      payload = _apply_tamper(space_mod, space2vtab, payload)
-    if space_mod == 'multiplespaces':
-      from src.core.tamper import multiplespaces
-      payload = _apply_tamper(space_mod, multiplespaces, payload)
-
-  for encode_type in list(settings.MULTI_ENCODED_PAYLOAD[::-1]):
-    # Encode payload to hex format.
-    if encode_type == 'base64encode':
-      from src.core.tamper import base64encode
-      payload = _apply_tamper(encode_type, base64encode, payload)
-    # Encode payload to hex format.
-    if encode_type == 'hexencode':
-      from src.core.tamper import hexencode
-      payload = _apply_tamper(encode_type, hexencode, payload)
+  # tamper_scripts() already sorts scripts by declared __priority__; apply them in that order.
+  for script in list(settings.MULTI_ENCODED_PAYLOAD):
+    # "xforwardedfor" mutates request headers, not the payload string - applied directly in headers.do_check(), nothing to do here.
+    if script == 'xforwardedfor':
+      continue
+    module = importlib.import_module("src.core.tamper." + script)
+    payload = _apply_tamper(script, module, payload)
 
   return payload
 

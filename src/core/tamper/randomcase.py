@@ -15,6 +15,7 @@ For more see the file 'readme/COPYING' for copying permission.
 
 from random import choice
 from src.utils import settings
+from src.core.injections.controller import checks
 
 """
 About: Replaces each character in a user-supplied OS command with a random case.
@@ -22,6 +23,10 @@ Notes: This tamper script works against Unix-like target(s).
 """
 
 __tamper__ = "randomcase"
+__priority__ = settings.PRIORITY.HIGH
+
+def dependencies():
+  return checks.tamper_dep_unix_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True
@@ -41,10 +46,7 @@ def tamper(payload):
         random_case_cmd = "$(echo " + _ + "|tr \"[A-Z]\" \"[a-z]\")"
       payload = settings.RAW_PAYLOAD.replace(settings.USER_APPLIED_CMD, random_case_cmd)
       if len(settings.WHITESPACES) != 0:
-        try:
-          payload = payload.replace(settings.SINGLE_WHITESPACE, settings.WHITESPACES[0])
-        except Exception:
-          pass
+        payload = payload.replace(settings.SINGLE_WHITESPACE, settings.WHITESPACES[0])
   return payload
 
 # eof

@@ -14,9 +14,8 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 import re
-import sys
-from src.utils import menu
 from src.utils import settings
+from src.core.injections.controller import checks
 
 """
 About: Adds caret symbol (^) between the characters in a given payload.
@@ -24,16 +23,20 @@ Notes: This tamper script works against windows targets.
 """
 
 __tamper__ = "caret"
+__priority__ = settings.PRIORITY.LOW
+
+def dependencies():
+  return checks.tamper_dep_windows_only(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True
 
 def tamper(payload):
   def add_caret_symbol(payload):
-    if re.compile(r"\w+").findall(payload):
-      long_string = ""
-      if len(max(re.compile(r"\w+").findall(payload), key=lambda word: len(word))) >= 5000:
-        long_string = max(re.compile(r"\w+").findall(payload), key=lambda word: len(word))
+    words = re.findall(r"\w+", payload)
+    if words:
+      longest_word = max(words, key=len)
+      long_string = longest_word if len(longest_word) >= 5000 else ""
       rep = {
               "^^": "^",
               '"^t""^o""^k""^e""^n""^s"': '"t"^"o"^"k"^"e"^"n"^"s"',

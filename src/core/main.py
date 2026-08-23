@@ -625,6 +625,8 @@ def main(filename, url, http_request_method):
         if menu.options.tamper:
           settings.USER_APPLIED_TAMPER = menu.options.tamper
           checks.tamper_scripts(stored_tamper_scripts=False)
+          # Prime whitespace-mutating tampers before capturing settings.WHITESPACES.
+          checks.perform_payload_modification(payload="")
       except AttributeError:
         pass
 

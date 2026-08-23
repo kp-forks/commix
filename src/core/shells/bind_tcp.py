@@ -539,9 +539,8 @@ Set up the bind TCP connection
 def configure_bind_tcp(separator):
   # Set up rhost for the bind TCP connection.
   while True:
-    settings.print_data_to_stdout(settings.END_LINE.CR + settings.BIND_TCP_SHELL)
-
-    option = _input()
+    # Pass the prompt to input() so readline handles redraws and line state correctly.
+    option = common.safe_input(settings.BIND_TCP_SHELL)
 
     if option.lower() == "bind_tcp":
       warn_msg = "You are in the '" + option.lower() + "' mode."
@@ -605,11 +604,13 @@ def configure_bind_tcp(separator):
       # Invalid set option.
       else:
         common.invalid_option(option)
+        settings.print_data_to_stdout("Use 'set rhost <ip>' and 'set lport <port>' to configure the bind TCP connection.")
         pass
 
     # Invalid option.
     else:
       common.invalid_option(option)
+      settings.print_data_to_stdout("Use 'set rhost <ip>' and 'set lport <port>' to configure the bind TCP connection.")
       pass
 
 # eof

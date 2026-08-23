@@ -375,7 +375,6 @@ def check_stored_injection_points(url, check_parameter, http_request_method):
 
         if len(menu.options.tech) == 0 or technique in menu.options.tech:
           found = True
-
           # Prefer more specific vulnerable parameter (e.g., HTTP header), if available
           vuln_parameter = vuln_param or http_header
           session_url = session[1]

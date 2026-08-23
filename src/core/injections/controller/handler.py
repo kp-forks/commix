@@ -93,9 +93,11 @@ def pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix,
         while True:
           if not settings.READLINE_ERROR:
             checks.tab_autocompleter()
-          settings.print_data_to_stdout(settings.END_LINE.CR + settings.OS_SHELL)
           try:
-            cmd = common.read_input(message="", default="os_shell", check_batch=True)
+            # Let safe_input() print the prompt so readline can redraw it correctly.
+            cmd = common.safe_input(settings.OS_SHELL)
+            if len(cmd) == 0:
+              cmd = "os_shell"
             cmd = checks.escaped_cmd(cmd)
             if cmd.lower() in settings.SHELL_OPTIONS:
               if cmd.lower() == "quit" or cmd.lower() == "exit":

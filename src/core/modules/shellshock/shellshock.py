@@ -190,11 +190,10 @@ def bind_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, http
       reverse_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again)
     return go_back, go_back_again
   while True:
-    if settings.RHOST and settings.LPORT in settings.SHELL_OPTIONS:
-      result = checks.check_bind_tcp_options(settings.RHOST)
-    else:  
-      cmd = bind_tcp.bind_tcp_options(separator = "")
-      result = checks.check_bind_tcp_options(cmd)
+    # LPORT is always a validated numeric string (see check_lport()), so it can
+    # never equal a SHELL_OPTIONS keyword - always prompt for the shell type.
+    cmd = bind_tcp.bind_tcp_options(separator = "")
+    result = checks.check_bind_tcp_options(cmd)
     if result != None:
       if result == 0:
         return False
@@ -218,11 +217,10 @@ def reverse_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, h
       bind_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again)
     return go_back, go_back_again
   while True:
-    if settings.LHOST and settings.LPORT in settings.SHELL_OPTIONS:
-      result = checks.check_reverse_tcp_options(settings.LHOST)
-    else:  
-      cmd = reverse_tcp.reverse_tcp_options(separator = "")
-      result = checks.check_reverse_tcp_options(cmd)
+    # LPORT is always a validated numeric string (see check_lport()), so it can
+    # never equal a SHELL_OPTIONS keyword - always prompt for the shell type.
+    cmd = reverse_tcp.reverse_tcp_options(separator = "")
+    result = checks.check_reverse_tcp_options(cmd)
     if result != None:
       if result == 0:
         return False
@@ -418,8 +416,12 @@ def shellshock_handler(url, http_request_method, filename):
                 while True:
                   if not settings.READLINE_ERROR:
                     checks.tab_autocompleter()
-                  settings.print_data_to_stdout(settings.END_LINE.CR +settings.OS_SHELL)
-                  cmd = common.read_input(message="", default="os_shell", check_batch=True)
+                  # Prompt passed straight to input() (via safe_input()) so readline owns
+                  # it and redraws it correctly on tab/history, instead of pre-printing it
+                  # separately and leaving the "line still open" bookkeeping out of sync.
+                  cmd = common.safe_input(settings.OS_SHELL)
+                  if len(cmd) == 0:
+                    cmd = "os_shell"
                   cmd = checks.escaped_cmd(cmd)
                   if cmd.lower() in settings.SHELL_OPTIONS:
                     os_shell_option = checks.check_os_shell_options(cmd.lower(), technique, go_back, no_result) 

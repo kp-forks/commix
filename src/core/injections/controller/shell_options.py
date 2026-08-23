@@ -71,11 +71,10 @@ def bind_tcp_config(separator, TAG, cmd, prefix, suffix, whitespace, http_reques
     return go_back, go_back_again
 
   while True:
-    if settings.RHOST and settings.LPORT in settings.SHELL_OPTIONS:
-      result = checks.check_bind_tcp_options(settings.RHOST)
-    else:
-      cmd = bind_tcp.bind_tcp_options(separator)
-      result = checks.check_bind_tcp_options(cmd)
+    # LPORT is always a validated numeric string (see check_lport()), so it can
+    # never equal a SHELL_OPTIONS keyword - always prompt for the shell type.
+    cmd = bind_tcp.bind_tcp_options(separator)
+    result = checks.check_bind_tcp_options(cmd)
     if result != None:
       if result == 0:
         go_back_again = False
@@ -104,11 +103,10 @@ def reverse_tcp_config(separator, TAG, cmd, prefix, suffix, whitespace, http_req
     return go_back, go_back_again
 
   while True:
-    if settings.LHOST and settings.LPORT in settings.SHELL_OPTIONS:
-      result = checks.check_reverse_tcp_options(settings.LHOST)
-    else:
-      cmd = reverse_tcp.reverse_tcp_options(separator)
-      result = checks.check_reverse_tcp_options(cmd)
+    # LPORT is always a validated numeric string (see check_lport()), so it can
+    # never equal a SHELL_OPTIONS keyword - always prompt for the shell type.
+    cmd = reverse_tcp.reverse_tcp_options(separator)
+    result = checks.check_reverse_tcp_options(cmd)
     if result != None:
       if result == 0:
         go_back_again = False

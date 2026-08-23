@@ -3499,11 +3499,29 @@ def set_python_interpreter():
       pass
 
 """
+Every bind/reverse shell payload template hardcodes IPv4 (socket.AF_INET, no bracket syntax), so an IPv6 literal would silently generate a broken payload - reject it instead.
+"""
+def _is_ipv6(value):
+  try:
+    socket.inet_pton(socket.AF_INET6, value)
+    return True
+  except (OSError, socket.error):
+    return False
+
+"""
 Hostnames are allowed, shell metacharacters are not.
 """
 def _validate_host_or_path(option_name, value):
   if re.match(r'^[A-Za-z0-9.\-:_/]+$', value) is None:
     err_msg = "The provided " + option_name + " value contains characters that are not allowed (only letters, digits, '.', '-', ':', '_', '/')."
+    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+    return False
+  if value.isdigit():
+    err_msg = "'" + value + "' looks like a port number, not a valid " + option_name + " host/IP - did you mean to use 'set lport'?"
+    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+    return False
+  if _is_ipv6(value):
+    err_msg = "IPv6 addresses are not currently supported for '" + option_name + "' - use an IPv4 address or hostname."
     settings.print_data_to_stdout(settings.print_error_msg(err_msg))
     return False
   return True
@@ -3532,32 +3550,34 @@ def check_lhost(lhost):
   return True
 
 """
+Validate a port is a plain base-10 integer within the valid TCP port range (1-65535) - float() alone would silently accept 'nan'/'inf'/negatives/decimals/out-of-range values as a usable port.
+"""
+def _validate_port(port):
+  if re.match(r'^\d+$', port) is None or not (1 <= int(port) <= 65535):
+    err_msg = "The provided port must be numeric and in the 1-65535 range (i.e. 1234)."
+    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+    return False
+  return True
+
+"""
 check / set lport option for reverse TCP connection
 """
 def check_lport(lport):
-  try:
-    if float(lport):
-      settings.LPORT = lport
-      settings.print_data_to_stdout("LPORT => " + settings.LPORT)
-      return True
-  except ValueError:
-    err_msg = "The provided port must be numeric (i.e. 1234)"
-    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+  if not _validate_port(lport):
     return False
+  settings.LPORT = lport
+  settings.print_data_to_stdout("LPORT => " + settings.LPORT)
+  return True
 
 """
 check / set srvport option for reverse TCP connection
 """
 def check_srvport(srvport):
-  try:
-    if float(srvport):
-      settings.SRVPORT = srvport
-      settings.print_data_to_stdout("SRVPORT => " + settings.SRVPORT)
-      return True
-  except ValueError:
-    err_msg = "The provided port must be numeric (i.e. 1234)"
-    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+  if not _validate_port(srvport):
     return False
+  settings.SRVPORT = srvport
+  settings.print_data_to_stdout("SRVPORT => " + settings.SRVPORT)
+  return True
 
 """
 check / set uripath option for reverse TCP connection

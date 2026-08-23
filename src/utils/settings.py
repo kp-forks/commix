@@ -212,6 +212,16 @@ def command_execution_output(shell):
   return result
 
 """
+Write to stdout, falling back to a lossy re-encode for unsupported characters.
+"""
+def _stdout_write(data):
+  try:
+    sys.stdout.write(data)
+  except UnicodeEncodeError:
+    encoding = getattr(sys.stdout, "encoding", None) or DEFAULT_CODEC
+    sys.stdout.write(data.encode(encoding, errors="replace").decode(encoding, errors="replace"))
+
+"""
 Print data to stdout
 """
 def print_data_to_stdout(data):
@@ -219,7 +229,7 @@ def print_data_to_stdout(data):
   with PRINT_LOCK:
     # A bare "\r" only moves the cursor and does not open a line.
     if data == END_LINE.CR:
-      sys.stdout.write(data)
+      _stdout_write(data)
       sys.stdout.flush()
       return
 
@@ -239,7 +249,7 @@ def print_data_to_stdout(data):
     if not is_spinner_style:
       data = data + END_LINE.LF
 
-    sys.stdout.write(data)
+    _stdout_write(data)
     sys.stdout.flush()
     PROGRESS_LINE_OPEN = is_spinner_style and not has_lf
 
@@ -302,7 +312,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "90"
+REVISION = "91"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:

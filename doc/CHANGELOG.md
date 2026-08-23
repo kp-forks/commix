@@ -1,4 +1,5 @@
 ## Version 4.2 (TBA)
+* Fixed: Improved encoding handling reliability to prevent unhandled Unicode errors during scans.
 * Revised: Improved `--alter-shell` character extraction to bisect instead of scan linearly.
 * Added: Dynamic parameter detection to identify parameters whose values change between requests.
 * Fixed: Time-related techniques persist the skip-testable-value optimization across resumed sessions.

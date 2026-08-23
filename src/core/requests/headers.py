@@ -139,10 +139,10 @@ def check_http_traffic(request):
 
   class connection(http_client):
     def send(self, req):
-      headers = req.decode()
-      # http.client sends headers and body as separate send() calls - a headers
-      # chunk always ends in a blank line, so that's where the body (printed on
-      # the next send() call) will visually start.
+      # Decode request output safely, replacing non-UTF8 bytes instead of crashing.
+      headers = req.decode(settings.DEFAULT_CODEC, errors="replace")
+      # Headers end with a blank line, so the next send() starts the body.
+
       ends_with_blank_line = headers.endswith(settings.END_LINE.CRLF + settings.END_LINE.CRLF)
       request_http_headers = str(headers).split(settings.END_LINE.CRLF)
       unique_request_http_headers = []

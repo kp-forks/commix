@@ -201,7 +201,7 @@ def logs_notification(filename):
 Log all HTTP traffic into a textual file.
 """
 def log_traffic(header):
-  with open(menu.options.traffic_file, "a") as output_file:
+  with open(menu.options.traffic_file, "a", encoding=settings.DEFAULT_CODEC) as output_file:
     output_file.write(header)
 
 """

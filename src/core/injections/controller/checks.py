@@ -380,7 +380,7 @@ def alert():
 Check for HTTP Method
 """
 def check_http_method(url):
-  if settings.CRAWLING:
+  if settings.CRAWLING and not settings.USER_DEFINED_POST_DATA:
     http_request_method = settings.HTTPMETHOD.GET
   elif menu.options.method:
     http_request_method = menu.options.method.upper()

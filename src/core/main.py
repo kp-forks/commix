@@ -1138,7 +1138,7 @@ try:
         perform_check = True
         while True:
           settings.print_data_to_stdout(settings.print_message("[" + str(form_num) + "/" + str(len(clean_output_forms)) + "] FORM - POST " + form_url + " - " + form_data))
-          message = "Do you want to use form #" + str(form_num) + " for testing? [Y/n] "
+          message = "Do you want to use form #" + str(form_num) + " for testing? [Y/n/q] "
           next_form = common.read_input(message, default="Y", check_batch=True)
           if next_form in settings.CHOICE_YES:
             info_msg = "Testing form '" + form_url + "'."
@@ -1153,6 +1153,31 @@ try:
             common.invalid_option(next_form)
             pass
         if perform_check:
+          has_blank_fields = re.search(settings.EMPTY_FORM_FIELDS_REGEX, form_data) is not None
+          edit_msg = "Edit POST data [default: " + form_data + "]"
+          if has_blank_fields:
+            edit_msg += " (Warning: blank fields detected)"
+          edit_msg += ": "
+          form_data = common.read_input(edit_msg, default=form_data, check_batch=True)
+          if re.search(settings.EMPTY_FORM_FIELDS_REGEX, form_data):
+            fill_msg = "Do you want to fill blank fields with random values? [Y/n] "
+            if common.read_input(fill_msg, default="Y", check_batch=True) in settings.CHOICE_YES:
+              form_data = crawler.random_fill_blank_fields(form_data)
+          if menu.options.threads <= 1:
+            threads_msg = "Please enter number of threads? [Enter for " + str(menu.options.threads) + " (current)] "
+            threads_answer = common.read_input(threads_msg, default=str(menu.options.threads), check_batch=True)
+            try:
+              threads_value = int(threads_answer)
+              if threads_value > 1:
+                menu.options.threads = threads_value
+                settings.THREADS = min(threads_value, settings.MAX_THREADS)
+                if threads_value > settings.MAX_THREADS:
+                  warn_msg = "Setting '--threads' to the maximum of " + str(settings.MAX_THREADS) + " concurrent HTTP requests."
+                  settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+              elif threads_value < 1:
+                common.invalid_option(threads_answer)
+            except ValueError:
+              common.invalid_option(threads_answer)
           if os_checks_num == 0:
             settings.INIT_TEST = True
           # Reset the injection level

@@ -1,4 +1,5 @@
 ## Version 4.2 (TBA)
+* Revised: Improved crawled form handling, including interactive review before testing and correct parameter-type labeling.
 * Fixed: Improved bind/reverse TCP shell payload generation, port/host validation, and IPv6 handling.
 * Fixed: Improved tamper script handling reliability, including duplicate/invalid input and error handling.
 * Fixed: Improved encoding handling reliability to prevent unhandled Unicode errors during scans.

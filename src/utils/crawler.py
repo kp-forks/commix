@@ -14,7 +14,9 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 import re
 import sys
+import random
 import socket
+import string
 import tempfile
 from src.utils import menu
 from src.utils import settings
@@ -186,7 +188,7 @@ def store_hrefs(href, identified_hrefs, redirection):
 
 
 """
-Extract form fields as (name, value) pairs, using defaults for empty values.
+Extract form fields as (name, value) pairs, preserving blank values for the caller to fill.
 """
 def extract_form_params(form):
   params = []
@@ -208,8 +210,21 @@ def extract_form_params(form):
       value = field.text or ""
     else:
       value = field.get("value") or ""
-    params.append((name, value or settings.CRAWL_FORM_DEFAULT_VALUE))
+    params.append((name, value))
   return params
+
+"""
+Fill blank fields with a random int for id-like names or a random string otherwise.
+"""
+def random_fill_blank_fields(data):
+  def replacement(match):
+    item = match.group("result")
+    field_name = item[:-1]
+    new_value = str(random.randint(1, 9999)) if re.search(r"(?i)id", field_name) else \
+      ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(6))
+    # group(1) is the leading '&' (or '' for the start-of-string case) - keep it, only the value is new.
+    return match.group(1) + item + new_value
+  return re.sub(settings.EMPTY_FORM_FIELDS_REGEX, replacement, data)
 
 
 """
@@ -322,10 +337,12 @@ def do_process(url, http_request_method):
         if not params:
           continue
         method = (form.get("method") or settings.HTTPMETHOD.GET).upper()
-        data = "&".join(_urllib.parse.quote(str(k), safe="") + "=" + _urllib.parse.quote(str(v), safe="") for k, v in params)
         if method == settings.HTTPMETHOD.POST:
+          # Keep blank fields empty; main.py decides whether to fill them with a default or random value.
+          data = "&".join(_urllib.parse.quote(str(k), safe="") + "=" + _urllib.parse.quote(str(v), safe="") for k, v in params)
           store_forms(action_url, data)
         else:
+          data = "&".join(_urllib.parse.quote(str(k), safe="") + "=" + _urllib.parse.quote(str(v) or settings.CRAWL_FORM_DEFAULT_VALUE, safe="") for k, v in params)
           href = action_url + ("&" if "?" in action_url else "?") + data
           identified_hrefs = store_hrefs(href, identified_hrefs, redirection=False)
     no_usable_links(crawled_hrefs)

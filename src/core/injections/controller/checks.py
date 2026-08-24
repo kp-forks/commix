@@ -315,22 +315,26 @@ Skipping of further command injection tests.
 """
 def skip_testing(filename, url):
   if not settings.LOAD_SESSION:
-    if settings.IDENTIFIED_WARNINGS or settings.IDENTIFIED_PHPINFO:
-      _ = " testing command injection techniques"
-    else:
-      settings.SKIP_COMMAND_INJECTIONS = False 
-      settings.SKIP_CODE_INJECTIONS = True
+    command_injection_confirmed = not (settings.IDENTIFIED_WARNINGS or settings.IDENTIFIED_PHPINFO)
+    if command_injection_confirmed:
       _ = " further testing"
+    else:
+      _ = " testing command injection techniques"
     while True:
-      message = "Do you want to skip" + _ + " on the " 
+      message = "Do you want to skip" + _ + " on the "
       message += settings.CHECKING_PARAMETER + "? (recommended if certain) [Y/n] "
       procced_option = common.read_input(message, default="Y", check_batch=True)
       if procced_option in settings.CHOICE_YES:
         settings.SKIP_COMMAND_INJECTIONS = True
+        # "Further testing" must also honor the user's choice for the eval-based engine.
+        if command_injection_confirmed:
+          settings.SKIP_CODE_INJECTIONS = True
         settings.LOAD_SESSION = False
         return
       elif procced_option in settings.CHOICE_NO:
         settings.SKIP_COMMAND_INJECTIONS = False
+        if command_injection_confirmed:
+          settings.SKIP_CODE_INJECTIONS = False
         return
       elif procced_option in settings.CHOICE_QUIT:
         raise SystemExit()

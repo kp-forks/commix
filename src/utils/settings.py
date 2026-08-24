@@ -322,7 +322,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "97"
+REVISION = "98"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1517,9 +1517,6 @@ IGNORE_CODE = []
 
 # Default crawling depth
 DEFAULT_CRAWLING_DEPTH = 1
-
-# Default value used for a crawled GET form field that has no pre-filled value.
-CRAWL_FORM_DEFAULT_VALUE = "1"
 
 # Matches a "key=" pair with an empty value in a query/POST-data string, bounded by '&' or start/end.
 EMPTY_FORM_FIELDS_REGEX = r'(&|\A)(?P<result>[^=&]+=)(?=&|\Z)'

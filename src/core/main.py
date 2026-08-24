@@ -1255,6 +1255,16 @@ try:
                 common.invalid_option(next_url)
                 pass
             if perform_check:
+              if settings.CRAWLING:
+                split_url = _urllib.parse.urlsplit(url)
+                if re.search(settings.EMPTY_FORM_FIELDS_REGEX, split_url.query):
+                  edit_msg = "Edit URL [default: " + url + "] (Warning: blank fields detected): "
+                  url = common.read_input(edit_msg, default=url, check_batch=True)
+                  split_url = _urllib.parse.urlsplit(url)
+                  if re.search(settings.EMPTY_FORM_FIELDS_REGEX, split_url.query):
+                    fill_msg = "Do you want to fill blank fields with random values? [Y/n] "
+                    if common.read_input(fill_msg, default="Y", check_batch=True) in settings.CHOICE_YES:
+                      url = _urllib.parse.urlunsplit(split_url._replace(query=crawler.random_fill_blank_fields(split_url.query)))
               if os_checks_num == 0:
                 settings.INIT_TEST = True
               # Reset the injection level

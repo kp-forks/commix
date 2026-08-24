@@ -457,9 +457,12 @@ def request_failed(err_msg):
       return True
     elif [True for err_code in settings.HTTP_ERROR_CODES if err_code in str(error_msg)]:
       status_code = [err_code for err_code in settings.HTTP_ERROR_CODES if err_code in str(error_msg)]
-      warn_msg = "The web server responded with an HTTP error code '" + str(status_code[0]) 
-      warn_msg += "' which could interfere with the results of the tests."
-      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+      # Same de-dup as continue_tests() - a code already warned about there (or here) shouldn't warn again.
+      if not (len(settings.IGNORE_CODE) != 0 and any(str(x) in str(error_msg).lower() for x in settings.IGNORE_CODE)):
+        warn_msg = "The web server responded with an HTTP error code '" + str(status_code[0])
+        warn_msg += "' which could interfere with the results of the tests."
+        settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+        settings.IGNORE_CODE.append(status_code[0])
       if not settings.NOT_FOUND_ERROR in str(err_msg).lower():
         return False
       return True

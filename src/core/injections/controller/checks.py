@@ -764,6 +764,8 @@ def value_inside_boundaries(parameter, http_request_method):
             modifier_check = common.read_input(message, default="Y", check_batch=True)
             if modifier_check in settings.CHOICE_YES:
               parameter = parameter.replace(value_inside_boundaries, pcre_mod_value)
+              # Keep the marker in sync so the prompt reflects the updated value with '/e'.
+              value_inside_boundaries = pcre_mod_value
               break
             elif modifier_check in settings.CHOICE_NO:
               break

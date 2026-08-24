@@ -87,7 +87,8 @@ def normalize_results(output_href):
           parsed = _urllib.parse.urlparse(target)
           if not parsed.query:
             continue
-          param_names = tuple(sorted(_urllib.parse.parse_qs(parsed.query).keys()))
+          # Keep blank-valued fields; their parameter names still belong in the dedup key.
+          param_names = tuple(sorted(_urllib.parse.parse_qs(parsed.query, keep_blank_values=True).keys()))
           if not param_names:
             continue
           key = (parsed.path, param_names)
@@ -342,7 +343,8 @@ def do_process(url, http_request_method):
           data = "&".join(_urllib.parse.quote(str(k), safe="") + "=" + _urllib.parse.quote(str(v), safe="") for k, v in params)
           store_forms(action_url, data)
         else:
-          data = "&".join(_urllib.parse.quote(str(k), safe="") + "=" + _urllib.parse.quote(str(v) or settings.CRAWL_FORM_DEFAULT_VALUE, safe="") for k, v in params)
+          # Keep blank fields empty; main.py fills them based on the per-URL prompt.
+          data = "&".join(_urllib.parse.quote(str(k), safe="") + "=" + _urllib.parse.quote(str(v), safe="") for k, v in params)
           href = action_url + ("&" if "?" in action_url else "?") + data
           identified_hrefs = store_hrefs(href, identified_hrefs, redirection=False)
     no_usable_links(crawled_hrefs)

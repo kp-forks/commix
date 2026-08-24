@@ -33,15 +33,17 @@ from src.thirdparty.colorama import Fore, Back, Style, init
 Open the session DB and always close it; retry after recreating a deleted directory.
 """
 @contextlib.contextmanager
-def _session_connection():
+def _session_connection(session_file=None):
+  if session_file is None:
+    session_file = settings.SESSION_FILE
   conn = None
   last_err = None
   for attempt in range(5):
     try:
-      session_dir = os.path.dirname(settings.SESSION_FILE)
+      session_dir = os.path.dirname(session_file)
       if session_dir and not os.path.isdir(session_dir):
         os.makedirs(session_dir, exist_ok=True)
-      conn = sqlite3.connect(settings.SESSION_FILE, timeout=10)
+      conn = sqlite3.connect(session_file, timeout=10)
       break
     except sqlite3.OperationalError as err:
       last_err = err
@@ -316,8 +318,7 @@ def has_any_stored_technique(url, http_request_method):
   if not os.path.isfile(session_file):
     return False
   try:
-    conn = sqlite3.connect(session_file, timeout=5)
-    try:
+    with _session_connection(session_file) as conn:
       table = table_name(url) + "_ip"
       cursor = conn.cursor()
       cursor.execute("SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';", (table,))
@@ -327,8 +328,6 @@ def has_any_stored_technique(url, http_request_method):
       query = "SELECT technique FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND http_request_method = ?;"
       cursor.execute(query, (like_url, http_request_method))
       return any(not menu.options.tech or technique_letter(row[0]) in menu.options.tech for row in cursor.fetchall())
-    finally:
-      conn.close()
   except (sqlite3.OperationalError, sqlite3.DatabaseError):
     return False
 

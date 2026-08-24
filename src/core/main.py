@@ -348,26 +348,44 @@ def init_injection(url):
 Validate and normalize a target line, returning the cleaned URL or None.
 """
 def parse_target_line(line):
-  if re.search(r"\b(https?://[^\s'\"]+|[\w.]+\.\w{2,3}[/\w+]*\?[^\s'\"]+)", line, re.I):
-    line = line.replace(settings.SINGLE_WHITESPACE, _urllib.parse.quote_plus(settings.SINGLE_WHITESPACE)).strip()
-    return line.rstrip()
+  match = re.search(r"\b(https?://[^\s'\"]+|[\w.]+\.\w{2,3}[/\w+]*\?[^\s'\"]+)", line, re.I)
+  if match:
+    # Extract only the matched URL to avoid appending log prefixes or surrounding output.
+    target = match.group(0)
+    target = target.replace(settings.SINGLE_WHITESPACE, _urllib.parse.quote_plus(settings.SINGLE_WHITESPACE)).strip()
+    return target.rstrip()
   return None
 
 """
-Using 'stdin' for parsing targets.
+Using 'stdin' for parsing targets. A generator, so a target is yielded as soon as its line
+arrives - this lets a chained/piped upstream tool's output start being tested immediately,
+instead of commix blocking until that tool finishes and closes its end of the pipe.
 """
 def stdin_parsing_target(os_checks_num):
-  _ = []
   if os_checks_num == 0:
     info_msg = "Using 'stdin' for parsing targets list."
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
   menu.options.batch = True
   settings.MULTI_TARGETS = True
-  for url in sys.stdin:
+  # Read stdin line-by-line as it arrives instead of relying on the iterator's read-ahead buffering.
+  for url in iter(sys.stdin.readline, ""):
     target = parse_target_line(url)
     if target:
-      _.append(target)
-  return _
+      yield target
+
+"""
+Yield (item, is_last) without requiring the iterable's length, supporting both lists and lazy generators.
+"""
+def with_is_last(iterable):
+  it = iter(iterable)
+  try:
+    prev = next(it)
+  except StopIteration:
+    return
+  for item in it:
+    yield prev, False
+    prev = item
+  yield prev, True
 
 """
 Check if an injection point has already been detected against target.
@@ -707,8 +725,9 @@ try:
     smoke_test()
 
   try:
-    # Treat non-interactive stdin as targets only when no explicit target was given.
+    # Treat non-interactive stdin as targets only without an explicit target; skip CI log pipes.
     if hasattr(sys.stdin, "fileno") and not any((os.isatty(sys.stdin.fileno()), menu.options.ignore_stdin,
+                "CI" in os.environ,
                 menu.options.url, menu.options.requestfile, menu.options.bulkfile, menu.options.logfile)):
       settings.STDIN_PARSING = True
   except Exception as ex:
@@ -1055,7 +1074,8 @@ try:
           output_forms += crawler.crawled_forms
         else:
           if settings.STDIN_PARSING:
-            bulkfile = stdin_parsing_target(os_checks_num)
+            # --crawl requires the full target list; stream only plain stdin targets.
+            bulkfile = list(stdin_parsing_target(os_checks_num))
           crawling_list = len(bulkfile)
           for url in bulkfile:
             output_href += (crawler.crawler(url, url_num, crawling_list, http_request_method))
@@ -1076,23 +1096,33 @@ try:
         filename = None
         if not settings.STDIN_PARSING:
           output_href = output_href + bulkfile
-        else:
-          output_href = stdin_parsing_target(os_checks_num)
 
-      # Removing duplicates from list (order-preserving, O(n)).
-      clean_output_href = []
-      seen_href = set()
-      for x in output_href:
-        if x not in seen_href:
-          seen_href.add(x)
-          clean_output_href.append(x)
-      # Removing empty elements from list.
-      clean_output_href = [x for x in clean_output_href if x]
-      if len(output_href) != 0:
-        if filename is not None:
-          filename = crawler.store_crawling(output_href)
-        info_msg = "Found a total of " + str(len(clean_output_href)) + " target"+ "s"[len(clean_output_href) == 1:] + "."
-        settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+      # Stream plain stdin targets as they arrive; total_href stays None until the stream ends.
+      if settings.STDIN_PARSING and not settings.CRAWLING:
+        def _dedupe_lazy(iterable):
+          seen = set()
+          for x in iterable:
+            if x and x not in seen:
+              seen.add(x)
+              yield x
+        clean_output_href = _dedupe_lazy(stdin_parsing_target(os_checks_num))
+        total_href = None
+      else:
+        # Removing duplicates from list (order-preserving, O(n)).
+        clean_output_href = []
+        seen_href = set()
+        for x in output_href:
+          if x not in seen_href:
+            seen_href.add(x)
+            clean_output_href.append(x)
+        # Removing empty elements from list.
+        clean_output_href = [x for x in clean_output_href if x]
+        if len(output_href) != 0:
+          if filename is not None:
+            filename = crawler.store_crawling(output_href)
+          info_msg = "Found a total of " + str(len(clean_output_href)) + " target"+ "s"[len(clean_output_href) == 1:] + "."
+          settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+        total_href = len(clean_output_href)
 
       # Removing duplicates from the identified (crawled) forms (order-preserving, O(n)).
       clean_output_forms = []
@@ -1204,7 +1234,8 @@ try:
           settings.USER_DEFINED_POST_DATA = orig_user_defined_post_data
 
       url_num = 0
-      for url in clean_output_href:
+      href_count_suffix = ("/" + str(total_href)) if total_href is not None else ""
+      for url, is_last_href in with_is_last(clean_output_href):
         if check_for_injected_url(url):
           if settings.SKIP_VULNERABLE_HOST is None:
             while True:
@@ -1225,7 +1256,7 @@ try:
 
           if settings.SKIP_VULNERABLE_HOST:
             url_num += 1
-            info_msg = "Skipping URL '" + url + "' (" + str(url_num) + "/" + str(len(clean_output_href)) + ")."
+            info_msg = "Skipping URL '" + url + "' (" + str(url_num) + href_count_suffix + ")."
             settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
         if not check_for_injected_url(url) or settings.SKIP_VULNERABLE_HOST is False:
@@ -1236,7 +1267,7 @@ try:
             url_num += 1
             perform_check = True
             while True:
-              settings.print_data_to_stdout(settings.print_message("[" + str(url_num) + "/" + str(len(clean_output_href)) + "] URL - " + http_request_method + " " + url))
+              settings.print_data_to_stdout(settings.print_message("[" + str(url_num) + href_count_suffix + "] URL - " + http_request_method + " " + url))
               message = "Do you want to use URL #" + str(url_num) + " for testing? [Y/n] "
               next_url = common.read_input(message, default="Y", check_batch=True)
               if next_url in settings.CHOICE_YES:
@@ -1245,7 +1276,7 @@ try:
                 break
               elif next_url in settings.CHOICE_NO:
                 perform_check = False
-                if url_num == len(clean_output_href):
+                if is_last_href:
                   raise SystemExit()
                 else:
                   break
@@ -1284,9 +1315,9 @@ try:
                 pass
           else:
             url_num += 1
-            settings.print_data_to_stdout(settings.print_message("[" + str(url_num) + "/" + str(len(clean_output_href)) + "] Skipping URL - " + http_request_method + " " + url))
+            settings.print_data_to_stdout(settings.print_message("[" + str(url_num) + href_count_suffix + "] Skipping URL - " + http_request_method + " " + url))
 
-        if url_num == len(clean_output_href):
+        if is_last_href:
           raise SystemExit()
 
 except KeyboardInterrupt:

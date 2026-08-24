@@ -1,4 +1,5 @@
 ## Version 4.2 (TBA)
+* Revised: Improved stdin parsing to stream targets for use with piped/chained input.
 * Fixed: Improved detection engine reliability when choosing to continue testing.
 * Fixed: Improved heuristic detection reliability to reduce false positives.
 * Revised: Improved tamper script reliability, deterministic execution order, and encoding/whitespace handling for more accurate detection.

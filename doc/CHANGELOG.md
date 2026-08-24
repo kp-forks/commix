@@ -1,4 +1,5 @@
 ## Version 4.2 (TBA)
+* Fixed: Improved heuristic detection reliability to reduce false positives.
 * Revised: Improved tamper script reliability, deterministic execution order, and encoding/whitespace handling for more accurate detection.
 * Revised: Improved crawled form handling, including interactive review before testing and correct parameter-type labeling.
 * Fixed: Improved bind/reverse TCP shell payload generation, port/host validation, and IPv6 handling.

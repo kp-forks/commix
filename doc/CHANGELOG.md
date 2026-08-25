@@ -1,4 +1,5 @@
 ## Version 4.2 (TBA)
+* Fixed: Improved crawling reliability against HTTPS targets.
 * Revised: Improved stdin parsing to stream targets for use with piped/chained input.
 * Fixed: Improved detection engine reliability when choosing to continue testing.
 * Fixed: Improved heuristic detection reliability to reduce false positives.

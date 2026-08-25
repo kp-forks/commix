@@ -167,7 +167,7 @@ def heuristic_request(url, http_request_method, check_parameter, payload, whites
   return response, url
 
 """
-Heuristic (basic) tests for command injection
+Heuristic (basic) test for command injection
 """
 def command_injection_heuristic_basic(url, http_request_method, check_parameter, the_type, header_name, inject_http_headers):
   check_parameter = check_parameter.lstrip().rstrip()
@@ -198,7 +198,7 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter,
                 settings.TARGET_OS = settings.OS.UNIX
               else:
                 settings.TARGET_OS = settings.OS.WINDOWS
-              info_msg = "Heuristic (basic) tests show that "
+              info_msg = "Heuristic (basic) test shows that "
               info_msg += settings.CHECKING_PARAMETER + " might be injectable (possible OS: '" + possible_os + "')."
               settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
               settings.SKIP_CODE_INJECTIONS = True
@@ -212,7 +212,7 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter,
     raise SystemExit()
 
 """
-Heuristic (basic) tests for code injection warnings
+Heuristic (basic) test for code injection warnings
 """
 def code_injections_heuristic_basic(url, http_request_method, check_parameter, the_type, header_name, inject_http_headers):
   check_parameter = check_parameter.lstrip().rstrip()
@@ -237,7 +237,7 @@ def code_injections_heuristic_basic(url, http_request_method, check_parameter, t
                 settings.IDENTIFIED_WARNINGS = True
                 break
           if settings.IDENTIFIED_WARNINGS or settings.IDENTIFIED_PHPINFO:
-            info_msg = "Heuristic (basic) tests show that "
+            info_msg = "Heuristic (basic) test shows that "
             info_msg += settings.CHECKING_PARAMETER + " might be injectable via " + technique + "."
             settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
             break
@@ -568,12 +568,12 @@ def injection_proccess(url, check_parameter, http_request_method, filename, time
       
     if menu.options.skip_heuristics:
       if settings.VERBOSITY_LEVEL != 0:
-        debug_msg = "Skipping heuristic (basic) tests to the " + settings.CHECKING_PARAMETER + "."
+        debug_msg = "Skipping heuristic (basic) test to the " + settings.CHECKING_PARAMETER + "."
         settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
     else:
       if not settings.LOAD_SESSION:
         checks.recognise_payload(payload=settings.TESTABLE_VALUE)
-        info_msg = "Performing heuristic (basic) tests to the " + settings.CHECKING_PARAMETER + "."
+        info_msg = "Performing heuristic (basic) test to the " + settings.CHECKING_PARAMETER + "."
         settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
         try:
@@ -597,7 +597,7 @@ def injection_proccess(url, check_parameter, http_request_method, filename, time
 
         if not settings.IDENTIFIED_COMMAND_INJECTION and not settings.IDENTIFIED_WARNINGS and not settings.IDENTIFIED_PHPINFO:
           settings.HEURISTIC_TEST.POSITIVE = False
-          warn_msg = "Heuristic (basic) tests show that "
+          warn_msg = "Heuristic (basic) test shows that "
           warn_msg += settings.CHECKING_PARAMETER + " might not be injectable."
           settings.print_data_to_stdout(settings.print_bold_warning_msg(warn_msg))
 

@@ -613,7 +613,7 @@ def main(filename, url, http_request_method):
           # Skip stability probing on resume unless content-reflection techniques ('c'/'e') are in scope.
           if not settings.LIKELY_RESUME and (not menu.options.tech or "c" in menu.options.tech or "e" in menu.options.tech):
             requests.is_url_content_stable(settings.INIT_CONNECTION_URL or url, response, settings.INIT_CONNECTION_FETCH_TIME, http_request_method)
-            info_msg = "Performing heuristic (passive) tests on the target URL."
+            info_msg = "Performing heuristic (passive) test on the target URL."
             settings.print_data_to_stdout(settings.print_info_msg(info_msg))
           # Webpage encoding detection.
           requests.encoding_detection(response)

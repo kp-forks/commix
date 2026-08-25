@@ -128,7 +128,7 @@ Checking the HTTP Headers & HTTP/S Request.
 def check_http_traffic(request):
   # Delay in seconds between each HTTP request
   time.sleep(int(settings.DELAY))
-  if settings.SCHEME == 'https':
+  if request.type == 'https':
     http_client = _http_client.HTTPSConnection
   else:
     http_client = _http_client.HTTPConnection

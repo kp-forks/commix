@@ -1261,7 +1261,7 @@ def check_CGI_scripts(url):
   _ = False
   for cgi_script in CGI_SCRIPTS:
     if cgi_script in url:
-      info_msg = "Heuristic (basic) tests show that target URL might be vulnerable to Shellshock "
+      info_msg = "Heuristic (basic) test shows that target URL might be vulnerable to Shellshock "
       info_msg += "(detected script: '" + cgi_script + "')."
       _ = True
       settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))

@@ -439,6 +439,17 @@ modules.add_option("--shellshock",
                 help="The 'shellshock' injection module.")
 
 # Injection options
+optimization = OptionGroup(parser, Style.BRIGHT + Style.UNDERLINE + "Optimization" + Style.RESET_ALL,
+                        "These options can be used to optimize the performance.")
+
+optimization.add_option("--threads",
+                default=1,
+                action="store",
+                type="int",
+                dest="threads",
+                help="Max number of concurrent HTTP requests (default 1, max 10).")
+
+# Injection options
 injection = OptionGroup(parser, Style.BRIGHT + Style.UNDERLINE + "Injection" + Style.RESET_ALL,
                         "These options can be used to specify which parameters to inject and to provide custom injection payloads.")
 
@@ -492,13 +503,6 @@ injection.add_option("--time-sec",
                 type="float",
                 dest="timesec",
                 help="Seconds to delay the OS response.")
-
-injection.add_option("--threads",
-                default=1,
-                action="store",
-                type="int",
-                dest="threads",
-                help="Max number of concurrent HTTP requests (default 1, max 10).")
 
 injection.add_option("--tmp-path",
                 action="store",
@@ -658,6 +662,7 @@ parser.add_option_group(request)
 parser.add_option_group(enumeration)
 parser.add_option_group(file_access)
 parser.add_option_group(modules)
+parser.add_option_group(optimization)
 parser.add_option_group(injection)
 parser.add_option_group(detection)
 parser.add_option_group(misc)

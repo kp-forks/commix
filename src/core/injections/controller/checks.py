@@ -313,16 +313,18 @@ def keep_testing_others(filename, url):
 """
 Skipping of further command injection tests.
 """
-def skip_testing(filename, url):
+def skip_testing(filename, url, announce=""):
   if not settings.LOAD_SESSION:
     command_injection_confirmed = not (settings.IDENTIFIED_WARNINGS or settings.IDENTIFIED_PHPINFO)
     if command_injection_confirmed:
       _ = " further testing"
     else:
       _ = " testing command injection techniques"
+    # The parameter is already named in 'announce' right before this - avoid saying it twice.
+    target = "it" if announce else "the " + settings.CHECKING_PARAMETER
     while True:
-      message = "Do you want to skip" + _ + " on the "
-      message += settings.CHECKING_PARAMETER + "? (recommended if certain) [Y/n] "
+      message = announce + "Do you want to skip" + _ + " on " + target
+      message += "? (recommended if certain) [Y/n] "
       procced_option = common.read_input(message, default="Y", check_batch=True)
       if procced_option in settings.CHOICE_YES:
         settings.SKIP_COMMAND_INJECTIONS = True
@@ -330,12 +332,12 @@ def skip_testing(filename, url):
         if command_injection_confirmed:
           settings.SKIP_CODE_INJECTIONS = True
         settings.LOAD_SESSION = False
-        return
+        return True
       elif procced_option in settings.CHOICE_NO:
         settings.SKIP_COMMAND_INJECTIONS = False
         if command_injection_confirmed:
           settings.SKIP_CODE_INJECTIONS = False
-        return
+        return False
       elif procced_option in settings.CHOICE_QUIT:
         raise SystemExit()
       else:
@@ -1031,10 +1033,10 @@ def assessment_phase():
 """
 Procced to the next attack vector.
 """
-def next_attack_vector(technique, go_back):
+def next_attack_vector(technique, go_back, announce=""):
   if not settings.LOAD_SESSION:
     while True:
-      message = "Do you want to continue testing using the " + technique + "? [y/N] "
+      message = announce + "Do you want to continue testing using the " + technique + "? [y/N] "
       next_attack_vector = common.read_input(message, default="N", check_batch=True)
       if next_attack_vector in settings.CHOICE_YES:
         # Check injection state
@@ -1074,22 +1076,21 @@ def remove_empty_lines(content):
   return content
 
 """
-Enable pseudo-terminal shell
+Build the vulnerability or session-resume message for a confirmed parameter.
 """
-def enable_shell(url):
+def vulnerable_message(url):
   message = ""
   if settings.LOAD_SESSION:
     message = "Resumed "
   message += settings.CHECKING_PARAMETER
-  if settings.LOAD_SESSION: 
+  if settings.LOAD_SESSION:
     message += " injection point from stored session"
   else:
     message += " is likely vulnerable"
-  message += ". Do you want to spawn a pseudo-terminal shell? [Y/n] "
+  message += "."
   if settings.CRAWLING:
     settings.CRAWLED_URLS_INJECTED.append(_urllib.parse.urlparse(url).netloc)
-  gotshell = common.read_input(message, default="Y", check_batch=True)
-  return gotshell
+  return message
 
 """
 Check 'os_shell' options

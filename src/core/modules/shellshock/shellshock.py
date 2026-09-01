@@ -408,7 +408,9 @@ def shellshock_handler(url, http_request_method, filename):
             while True:
               if go_back == True:
                 break
-              gotshell = checks.enable_shell(url)
+              # --os-shell is a direct action flag, not a prompt default - no question asked either way.
+              vuln_message = checks.vulnerable_message(url)
+              gotshell = settings.CHOICE_YES[0] if menu.options.os_shell else settings.CHOICE_NO[0]
               if gotshell in settings.CHOICE_YES:
                 settings.print_data_to_stdout(settings.OS_SHELL_TITLE)
                 if settings.READLINE_ERROR:
@@ -450,11 +452,17 @@ def shellshock_handler(url, http_request_method, filename):
                       err_msg = common.invalid_cmd_output(cmd)
                       settings.print_data_to_stdout(settings.print_error_msg(err_msg))
               elif gotshell in settings.CHOICE_NO:
-                if checks.next_attack_vector(technique, go_back) == True:
+                # Handle the parameter-wide decision before the technique-specific one.
+                if checks.skip_testing(filename, url, announce=vuln_message + " "):
+                  checks.keep_testing_others(filename, url)
+                  proceed = False
+                else:
+                  proceed = checks.next_attack_vector(technique, go_back)
+                if proceed:
                   break
                 else:
                   if no_result == True:
-                    return False 
+                    return False
                   else:
                     logs.logs_notification(filename)
                     return True

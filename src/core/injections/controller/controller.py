@@ -260,7 +260,6 @@ def classic_command_injection_technique(url, timesec, filename, http_request_met
     if (len(menu.options.tech) == 0 or "c" in menu.options.tech):
       if cb_handler.exploitation(url, timesec, filename, http_request_method, injection_type, technique) != False:
         settings.CLASSIC_STATE = settings.IDENTIFIED_COMMAND_INJECTION = True
-        checks.skip_testing(filename, url)
       else:
         settings.CLASSIC_STATE = False
   if settings.CLASSIC_STATE == None or settings.SKIP_COMMAND_INJECTIONS:
@@ -277,8 +276,6 @@ def dynamic_code_evaluation_technique(url, timesec, filename, http_request_metho
     if (len(menu.options.tech) == 0 or "e" in menu.options.tech):
       if eb_handler.exploitation(url, timesec, filename, http_request_method, injection_type, technique) != False:
         settings.EVAL_BASED_STATE = True
-        if not settings.IDENTIFIED_WARNINGS and not settings.IDENTIFIED_PHPINFO:
-          checks.skip_testing(filename, url)
       else:
         settings.EVAL_BASED_STATE = False
   if settings.EVAL_BASED_STATE == None or not settings.SKIP_CODE_INJECTIONS:
@@ -295,7 +292,6 @@ def timebased_command_injection_technique(url, timesec, filename, http_request_m
     if (len(menu.options.tech) == 0 or "t" in menu.options.tech):
       if tb_handler.exploitation(url, timesec, filename, http_request_method, url_time_response, injection_type, technique) != False:
         settings.TIME_BASED_STATE = settings.IDENTIFIED_COMMAND_INJECTION = True
-        checks.skip_testing(filename, url)
       else:
         settings.TIME_BASED_STATE = False
   if settings.TIME_BASED_STATE == None or settings.SKIP_COMMAND_INJECTIONS:
@@ -319,7 +315,6 @@ def filebased_command_injection_technique(url, timesec, filename, http_request_m
         result = fb_handler.exploitation(url, timesec, filename, http_request_method, url_time_response, injection_type, technique)
       if result != False:
         settings.FILE_BASED_STATE = settings.IDENTIFIED_COMMAND_INJECTION = True
-        checks.skip_testing(filename, url)
       else:
         settings.FILE_BASED_STATE = False
   if settings.FILE_BASED_STATE == None or settings.SKIP_COMMAND_INJECTIONS:
@@ -499,7 +494,6 @@ def injection_proccess(url, check_parameter, http_request_method, filename, time
     settings.TARGET_OS = os_target
 
     if settings.PERFORM_BASIC_SCANS:
-      checks.keep_testing_others(filename, url)
       if not settings.LOAD_SESSION:
         settings.LOAD_SESSION = None
       basic_level_checks()

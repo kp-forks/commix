@@ -528,6 +528,12 @@ injection.add_option("--os-cmd",
                 default=False,
                 help="Execute a single operating system command.")
 
+injection.add_option("--os-shell",
+                action="store_true",
+                dest="os_shell",
+                default=False,
+                help="Prompt for an interactive operating system pseudo-shell.")
+
 injection.add_option("--os",
                 action="store",
                 dest="os",

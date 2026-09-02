@@ -90,7 +90,7 @@ def decision(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
 """
 __Warning__: The alternative shells are still experimental.
 """
-def decision_alter_shell(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
+def decision_alter_interpreter(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(len(file.read().strip()))\""
     if separator in ("|", "||"):
@@ -277,7 +277,7 @@ def cmd_execution(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_meth
 """
 __Warning__: The alternative shells are still experimental.
 """
-def cmd_execution_alter_shell(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_method):
+def cmd_execution_alter_interpreter(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_method):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(len(file.read().strip()))\""
     if separator in ("|", "||"):
@@ -406,7 +406,7 @@ def get_char(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http
 """
 __Warning__: The alternative shells are still experimental.
 """
-def get_char_alter_shell(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http_request_method, operator="-le"):
+def get_char_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http_request_method, operator="-le"):
   # Same bisection comparison by default as get_char() - validation re-probes with an equality operator.
   win_operator = "GEQ" if operator == "-le" else "EQU"
   if settings.TARGET_OS == settings.OS.WINDOWS:
@@ -521,7 +521,7 @@ def fp_result(separator, OUTPUT_TEXTFILE, ascii_char, timesec, http_request_meth
 """
 __Warning__: The alternative shells are still experimental.
 """
-def fp_result_alter_shell(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http_request_method):
+def fp_result_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http_request_method):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(file.readlines()[0][" + str(num_of_chars - 1) + "]); exit(0)\""
     if separator in ("|", "||"):

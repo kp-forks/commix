@@ -28,7 +28,7 @@ from src.thirdparty.colorama import Fore, Back, Style, init
 """
 Write to a file on the target host.
 """
-def file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique):
+def file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
   _ = False
   file_to_write, dest_to_write, content = checks.check_file_to_write()
   if settings.TARGET_OS == settings.OS.WINDOWS:
@@ -40,12 +40,12 @@ def file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec,
         whitespace = settings.WHITESPACES[0]
         _ = True
     fname, tmp_fname, cmd = checks.find_filename(dest_to_write, content)
-    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique)
+    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
     cmd = checks.win_decode_b64_enc(fname, tmp_fname)
-    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique)
+    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
     injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
     cmd = checks.delete_tmp(tmp_fname)
-    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique)
+    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
     shell = injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
   else:
     if technique == settings.INJECTION_TECHNIQUE.CLASSIC:
@@ -62,15 +62,15 @@ def file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec,
     if settings.TIME_RELATED_ATTACK:
       cmd = cmd + _urllib.parse.quote(separator) + settings.FILE_READ + dest_to_write
       if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, alter_shell, filename, url_time_response, technique)
+        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique)
       else:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
     else:
       if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
         cmd = cmd + settings.SINGLE_WHITESPACE + settings.COMMENT
-        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
       else:
-        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique)
+        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
       shell = injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
     shell = "".join(str(p) for p in shell)
   cmd = checks.check_file(dest_to_write)
@@ -78,16 +78,16 @@ def file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec,
     if settings.VERBOSITY_LEVEL == 0 and not _:
       settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
       if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, alter_shell, filename, url_time_response, technique)
+        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique)
       else:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
   else:
     if settings.USE_BACKTICKS:
       cmd = checks.remove_command_substitution(cmd)
     if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
-      response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+      response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
     else:
-      response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique)
+      response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
     shell = injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
   shell = "".join(str(p) for p in shell)
   if settings.TIME_RELATED_ATTACK:
@@ -98,7 +98,7 @@ def file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec,
 """
 Read a file from the target host.
 """
-def file_read(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique):
+def file_read(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
   if technique == settings.INJECTION_TECHNIQUE.CLASSIC:
     from src.core.injections.results_based.techniques.classic import cb_injector as injector
   elif technique == settings.INJECTION_TECHNIQUE.DYNAMIC_CODE:
@@ -117,16 +117,16 @@ def file_read(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, 
       shell = ""
     elif settings.TIME_RELATED_ATTACK:
       if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, alter_shell, filename, url_time_response, technique)
+        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique)
       else:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
       session_handler.store_cmd(url, cmd, shell, vuln_parameter)
       _ = True
     else:
       if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
-        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
       else:
-        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique)
+        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
         if settings.URL_RELOAD:
           response = requests.url_reload(url, timesec)
       shell = injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
@@ -142,19 +142,19 @@ def file_read(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, 
 """
 Check the defined options
 """
-def do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique):
+def do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
   if menu.options.file_write:
-    file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+    file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
     settings.FILE_ACCESS_DONE = True
     
   if menu.options.file_read:
-    file_read(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+    file_read(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
     settings.FILE_ACCESS_DONE = True
 
 """
 Check stored session
 """
-def stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique):
+def stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
   if settings.FILE_ACCESS_DONE == True :
     while True:
       message = "Do you want to ignore stored session and access files again? [y/N] "
@@ -162,7 +162,7 @@ def stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, time
       if file_access_again in settings.CHOICE_YES:
         if not menu.options.ignore_session:
           menu.options.ignore_session = True
-        do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+        do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
         break
       elif file_access_again in settings.CHOICE_NO:
         break
@@ -173,6 +173,6 @@ def stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, time
         pass
   else:
     if menu.file_access_options():
-      do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+      do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
 
 # eof

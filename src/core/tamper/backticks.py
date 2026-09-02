@@ -27,13 +27,13 @@ __tamper__ = "backticks"
 __priority__ = settings.PRIORITY.HIGHEST
 
 def dependencies():
-  return checks.tamper_dep_unix_only(__tamper__) or checks.tamper_dep_alter_shell_incompatible(__tamper__)
+  return checks.tamper_dep_unix_only(__tamper__) or checks.tamper_dep_interpreter_incompatible(__tamper__)
 
 if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True
 
 def tamper(payload):
-  if not menu.options.alter_shell and not settings.TARGET_OS == settings.OS.WINDOWS:
+  if not menu.options.interpreter and not settings.TARGET_OS == settings.OS.WINDOWS:
     settings.USE_BACKTICKS = True
     settings.CMD_SUB_PREFIX = settings.CMD_SUB_SUFFIX = "`"
     payload = payload.replace("${#" + settings.RANDOM_VAR_GENERATOR + "}", 

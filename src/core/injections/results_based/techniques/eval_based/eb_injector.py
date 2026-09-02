@@ -28,9 +28,9 @@ def injection_test_results(response, TAG, randvcalc, technique, payload=None):
 """
 The main command injection exploitation.
 """
-def injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique):
+def injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique):
   OUTPUT_TEXTFILE = ""
-  return injector.results_based_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+  return injector.results_based_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
 
 """
 The command execution results.

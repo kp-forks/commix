@@ -185,7 +185,7 @@ def clear(url):
 Store details of a successful injection point into the session database.
 Includes various metadata such as technique, payload, timing, vulnerability status, HTTP method, headers, and cookies.
 """
-def import_injection_points(url, technique, injection_type, filename, separator, shell, vuln_parameter, prefix, suffix, TAG, alter_shell, payload, http_request_method, url_time_response, timesec, exec_time, output_length, is_vulnerable):
+def import_injection_points(url, technique, injection_type, filename, separator, shell, vuln_parameter, prefix, suffix, TAG, interpreter, payload, http_request_method, url_time_response, timesec, exec_time, output_length, is_vulnerable):
   
   try:
     with _session_connection() as conn:
@@ -195,18 +195,18 @@ def import_injection_points(url, technique, injection_type, filename, separator,
       conn.execute("CREATE TABLE IF NOT EXISTS \"" + table + "\" "
                    "(id INTEGER PRIMARY KEY, url VARCHAR, technique VARCHAR, injection_type VARCHAR, separator VARCHAR, "
                    "shell VARCHAR, vuln_parameter VARCHAR, prefix VARCHAR, suffix VARCHAR, "
-                   "TAG VARCHAR, alter_shell VARCHAR, payload VARCHAR, http_header VARCHAR, http_request_method VARCHAR, url_time_response INTEGER, "
+                   "TAG VARCHAR, interpreter VARCHAR, payload VARCHAR, http_header VARCHAR, http_request_method VARCHAR, url_time_response INTEGER, "
                    "timesec INTEGER, exec_time INTEGER, output_length INTEGER, is_vulnerable VARCHAR, data VARCHAR, cookie VARCHAR, tamper VARCHAR, "
                    "target_os VARCHAR);")
 
       # Check if an exact matching record already exists to avoid duplicates
       query_check = ("SELECT 1 FROM \"" + table + "\" WHERE url = ? AND technique = ? AND injection_type = ? AND separator = ? AND "
-                     "shell = ? AND vuln_parameter = ? AND prefix = ? AND suffix = ? AND TAG = ? AND alter_shell = ? AND payload = ? AND "
+                     "shell = ? AND vuln_parameter = ? AND prefix = ? AND suffix = ? AND TAG = ? AND interpreter = ? AND payload = ? AND "
                      "http_header = ? AND http_request_method = ? AND url_time_response = ? AND timesec = ? AND exec_time = ? AND "
                      "output_length = ? AND is_vulnerable = ? AND data = ? AND cookie = ? AND tamper = ? AND target_os = ? LIMIT 1;")
 
       params = (str(url), str(technique), str(injection_type), str(separator), str(shell), str(vuln_parameter or ""),
-                str(prefix), str(suffix), str(TAG), str(alter_shell), str(payload), str(settings.HTTP_HEADER),
+                str(prefix), str(suffix), str(TAG), str(interpreter), str(payload), str(settings.HTTP_HEADER),
                 str(http_request_method), int(url_time_response), int(timesec), int(exec_time),
                 int(output_length), str(is_vulnerable), str(menu.options.data), str(menu.options.cookie),
                 str(menu.options.tamper or ""), str(settings.TARGET_OS))
@@ -221,7 +221,7 @@ def import_injection_points(url, technique, injection_type, filename, separator,
       # Insert new record only if no identical record exists
       if cursor.fetchone() is None:
         conn.execute("INSERT INTO \"" + table + "\" (url, technique, injection_type, separator, "
-                     "shell, vuln_parameter, prefix, suffix, TAG, alter_shell, payload, http_header, http_request_method, "
+                     "shell, vuln_parameter, prefix, suffix, TAG, interpreter, payload, http_header, http_request_method, "
                      "url_time_response, timesec, exec_time, output_length, is_vulnerable, data, cookie, tamper, target_os) "
                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", params)
         conn.commit()
@@ -436,7 +436,7 @@ Restore stored technique state and resume without querying the database again.
 """
 def apply_stored_technique(row):
   (url, technique, injection_type, separator, shell, vuln_parameter, prefix, suffix,
-   TAG, alter_shell, payload, http_header, http_request_method, url_time_response,
+   TAG, interpreter, payload, http_header, http_request_method, url_time_response,
    timesec, exec_time, output_length, is_vulnerable, data, cookie) = row[:20]
   # Older sessions (pre-tamper-column) won't have this field - default to "".
   tamper = row[20] if len(row) > 20 else ""
@@ -468,7 +468,7 @@ def apply_stored_technique(row):
     settings.TARGET_OS = target_os
 
   return (url, technique, injection_type, separator, shell, vuln_parameter, prefix, suffix,
-          TAG, alter_shell, payload, http_request_method, url_time_response, timesec,
+          TAG, interpreter, payload, http_request_method, url_time_response, timesec,
           exec_time, output_length, is_vulnerable)
 
 

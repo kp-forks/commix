@@ -1809,9 +1809,9 @@ def tamper_dep_time_related_only(tamper_name):
   if not time_related_in_scope:
     return "Only time-related techniques support the usage of '" + tamper_name + ".py'."
 
-def tamper_dep_alter_shell_incompatible(tamper_name):
-  if menu.options.alter_shell:
-    return "Option '--alter-shell' does not support the usage of '" + tamper_name + ".py'. Skipping tamper script."
+def tamper_dep_interpreter_incompatible(tamper_name):
+  if menu.options.interpreter:
+    return "Option '--interpreter' does not support the usage of '" + tamper_name + ".py'. Skipping tamper script."
 
 """
 Undo a per-character obfuscation (obf_char inserted before each letter) on any whole word that settings.IGNORE_TAMPER_TRANSFORMATION says must survive intact (e.g. shell keywords like 'if'/'then').
@@ -2594,7 +2594,7 @@ class print_enumenation():
 """
 Print users enumeration.
 """
-def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell):
+def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter):
   # Windows users enumeration.
   if settings.TARGET_OS == settings.OS.WINDOWS:
     try:
@@ -2735,7 +2735,7 @@ def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whi
 """
 Print users enumeration.
 """
-def print_passes(sys_passes, filename, _, alter_shell):
+def print_passes(sys_passes, filename, _, interpreter):
   if sys_passes == "":
     sys_passes = settings.SINGLE_WHITESPACE
     sys_passes = sys_passes.replace(settings.SINGLE_WHITESPACE, settings.END_LINE.LF).split()
@@ -3054,7 +3054,7 @@ def setting_writable_dir(path):
 Define python working dir (for windows targets)
 """
 def define_py_working_dir():
-  if settings.TARGET_OS == settings.OS.WINDOWS and menu.options.alter_shell:
+  if settings.TARGET_OS == settings.OS.WINDOWS and menu.options.interpreter:
     while True:
       message = "Do you want to use '" + settings.WIN_PYTHON_INTERPRETER
       message += "' as Python working directory on the target host? [Y/n] "
@@ -3316,8 +3316,8 @@ def time_related_export_injection_results(cmd, separator, output, check_exec_tim
       err_msg = "The '" + cmd + "' command did not return any output. This could be due to "
       err_msg += "'" + separator + "' filtration on the target host, or the command itself "
       err_msg += "being invalid."
-      if not menu.options.alter_shell:
-        err_msg += " If you're confident it's valid, try the '--alter-shell' option or another injection technique."
+      if not menu.options.interpreter:
+        err_msg += " If you're confident it's valid, try the '--interpreter' option or another injection technique."
       else:
         err_msg += " If you're confident it's valid, try another injection technique."
       settings.print_data_to_stdout(settings.print_critical_msg(err_msg))

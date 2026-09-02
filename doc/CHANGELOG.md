@@ -1,4 +1,5 @@
 ## Version 4.2 (TBA)
+* Revised: Renamed '--alter-shell' to '--interpreter' for clarity.
 * Revised: Added an option `--os-shell` switch to directly request an interactive operating system pseudo-shell.
 * Fixed: Improved crawling reliability against HTTPS targets.
 * Revised: Improved stdin parsing to stream targets for use with piped/chained input.

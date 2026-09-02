@@ -89,7 +89,7 @@ def decision(separator, TAG, randv1, randv2):
 """
 __Warning__: The alternative shells are still experimental.
 """
-def decision_alter_shell(separator, TAG, randv1, randv2):
+def decision_alter_interpreter(separator, TAG, randv1, randv2):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"print(str(int(" + str(int(randv1)) + "%2B" + str(int(randv2)) + ")))\""
     if settings.SKIP_CALC:
@@ -196,7 +196,7 @@ def cmd_execution(separator, TAG, cmd):
 """
 __Warning__: The alternative shells are still experimental.
 """
-def cmd_execution_alter_shell(separator, TAG, cmd):
+def cmd_execution_alter_interpreter(separator, TAG, cmd):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if settings.REVERSE_TCP:
       payload = (separator + cmd + settings.SINGLE_WHITESPACE

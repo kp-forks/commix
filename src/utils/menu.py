@@ -516,11 +516,11 @@ injection.add_option("--web-root",
                 default=False,
                 help="Set the web server document root directory (e.g. '/var/www').")
 
-injection.add_option("--alter-shell",
+injection.add_option("--interpreter",
                 action="store",
-                dest="alter_shell",
+                dest="interpreter",
                 default = "",
-                help="Use an alternative os-shell (e.g. 'Python').")
+                help="Construct detection and exploitation payloads using an alternative interpreter (e.g. 'Python') instead of native OS shell syntax.")
 
 injection.add_option("--os-cmd",
                 action="store",

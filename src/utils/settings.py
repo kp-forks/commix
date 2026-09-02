@@ -322,7 +322,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "103"
+REVISION = "104"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -419,7 +419,7 @@ class HEURISTIC_TEST(object):
 # Basic command-injection checks, built fresh per parameter with random values and markers.
 BASIC_STRING = ""
 BASIC_COMMAND_INJECTION_PAYLOADS = []
-ALTER_SHELL_BASIC_COMMAND_INJECTION_PAYLOADS = []
+ALTER_INTERPRETER_BASIC_COMMAND_INJECTION_PAYLOADS = []
 BASIC_COMMAND_INJECTION_RESULT = ""
 IDENTIFIED_COMMAND_INJECTION = False
 
@@ -793,7 +793,7 @@ UNSTABLE_REQUEST_BUMPS = 0
 MAX_UNSTABLE_TIMESEC_BUMP = 5
 
 # Available alternative shells
-AVAILABLE_SHELLS = ["python"]
+AVAILABLE_INTERPRETERS = ["python"]
 
 # Available injection techniques.
 AVAILABLE_TECHNIQUES = ['c','e','t','f']

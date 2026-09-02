@@ -83,7 +83,7 @@ def decision(separator, TAG, output_length, timesec, http_request_method):
 """
 __Warning__: The alternative shells are still experimental.
 """
-def decision_alter_shell(separator, TAG, output_length, timesec, http_request_method):
+def decision_alter_interpreter(separator, TAG, output_length, timesec, http_request_method):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"print(len(\'" + TAG + "\'))\""
     if separator in ("|", "||"):
@@ -241,7 +241,7 @@ def cmd_execution(separator, cmd, output_length, timesec, http_request_method):
 """
 __Warning__: The alternative shells are still experimental.
 """
-def cmd_execution_alter_shell(separator, cmd, output_length, timesec, http_request_method):
+def cmd_execution_alter_interpreter(separator, cmd, output_length, timesec, http_request_method):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if separator in ("|", "||"):
       pipe = "|"
@@ -363,7 +363,7 @@ def get_length(separator, cmd, candidate_length, timesec, http_request_method):
 """
 __Warning__: The alternative shells are still experimental.
 """
-def get_length_alter_shell(separator, cmd, candidate_length, timesec, http_request_method):
+def get_length_alter_interpreter(separator, cmd, candidate_length, timesec, http_request_method):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if separator in ("|", "||"):
       pipe = "|"
@@ -494,7 +494,7 @@ def get_char(separator, cmd, num_of_chars, ascii_char, timesec, http_request_met
 """
 __Warning__: The alternative shells are still experimental.
 """
-def get_char_alter_shell(separator, cmd, num_of_chars, ascii_char, timesec, http_request_method, operator="-le"):
+def get_char_alter_interpreter(separator, cmd, num_of_chars, ascii_char, timesec, http_request_method, operator="-le"):
   # Same bisection comparison by default as get_char() - validation re-probes with an equality operator.
   win_operator = "GEQ" if operator == "-le" else "EQU"
   if settings.TARGET_OS == settings.OS.WINDOWS:
@@ -616,7 +616,7 @@ def fp_result(separator, cmd, num_of_chars, ascii_char, timesec, http_request_me
 """
 __Warning__: The alternative shells are still experimental.
 """
-def fp_result_alter_shell(separator, cmd, num_of_chars, ascii_char, timesec, http_request_method):
+def fp_result_alter_interpreter(separator, cmd, num_of_chars, ascii_char, timesec, http_request_method):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if separator in ("|", "||"):
       pipe = "|"

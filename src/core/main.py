@@ -693,10 +693,10 @@ try:
     if settings.STABLE_RELEASE == False:
       common.days_from_last_update()
 
-  # Check if specified wrong alternative shell
-  if menu.options.alter_shell:
-    if menu.options.alter_shell.lower() not in settings.AVAILABLE_SHELLS:
-      err_msg = "'" + menu.options.alter_shell + "' shell is not supported!"
+  # Check if specified wrong alternative interpreter
+  if menu.options.interpreter:
+    if menu.options.interpreter.lower() not in settings.AVAILABLE_INTERPRETERS:
+      err_msg = "'" + menu.options.interpreter + "' interpreter is not supported!"
       settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
       raise SystemExit()
 

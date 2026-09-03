@@ -2795,6 +2795,8 @@ def print_single_os_cmd(cmd, output, filename):
   else:
     err_msg = common.invalid_cmd_output(cmd)
     settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+    if menu.options.abort_on_empty:
+      raise SystemExit()
 
 """
 Quote provided cmd
@@ -3325,6 +3327,8 @@ def time_related_export_injection_results(cmd, separator, output, check_exec_tim
     else:
       err_msg = common.invalid_cmd_output(cmd)
       settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+    if menu.options.abort_on_empty:
+      raise SystemExit()
 
 """
 Success msg.

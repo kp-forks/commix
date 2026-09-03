@@ -451,6 +451,8 @@ def shellshock_handler(url, http_request_method, filename):
                         settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
                       err_msg = common.invalid_cmd_output(cmd)
                       settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+                      if menu.options.abort_on_empty:
+                        raise SystemExit()
               elif gotshell in settings.CHOICE_NO:
                 # Handle the parameter-wide decision before the technique-specific one.
                 if checks.skip_testing(filename, url, announce=vuln_message + " "):

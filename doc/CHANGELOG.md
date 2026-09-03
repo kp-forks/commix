@@ -1,6 +1,7 @@
 ## Version 4.2 (TBA)
+* Added: New '--abort-on-empty' switch to abort data retrieval on empty results.
 * Revised: Renamed '--alter-shell' to '--interpreter' for clarity.
-* Revised: Added an option `--os-shell` switch to directly request an interactive operating system pseudo-shell.
+* Added: New `--os-shell` switch to directly request a command shell.
 * Fixed: Improved crawling reliability against HTTPS targets.
 * Revised: Improved stdin parsing to stream targets for use with piped/chained input.
 * Fixed: Improved detection engine reliability when choosing to continue testing.

@@ -144,6 +144,8 @@ def pseudo_terminal_shell(injector, separator, maxlen, TAG, cmd, prefix, suffix,
               else:
                 err_msg = common.invalid_cmd_output(cmd)
                 settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+                if menu.options.abort_on_empty:
+                  raise SystemExit()
           except KeyboardInterrupt:
             # Resume right back at the shell prompt - no need to re-ask to spawn one.
             checks.handle_exploitation_interrupt(filename, url)

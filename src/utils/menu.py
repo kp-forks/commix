@@ -141,6 +141,12 @@ general.add_option("--answers",
                 dest="answers",
                 help="Set predefined answers (e.g. 'quit=N,follow=N').")
 
+general.add_option("--abort-on-empty",
+                action="store_true",
+                dest="abort_on_empty",
+                default=False,
+                help="Abort data retrieval on empty results.")
+
 # Target options
 target = OptionGroup(parser, Style.BRIGHT + Style.UNDERLINE + "Target" + Style.RESET_ALL,
                      "This options has to be provided, to define the target URL. ")
@@ -532,7 +538,7 @@ injection.add_option("--os-shell",
                 action="store_true",
                 dest="os_shell",
                 default=False,
-                help="Prompt for an interactive operating system pseudo-shell.")
+                help="Prompt for a command shell.")
 
 injection.add_option("--os",
                 action="store",

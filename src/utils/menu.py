@@ -144,6 +144,12 @@ general.add_option("--abort-on-empty",
                 default=False,
                 help="Abort data retrieval on empty results.")
 
+general.add_option("--report-json",
+                action="store",
+                dest="report_json",
+                default=None,
+                help="Store run results to a JSON file.")
+
 # Target options
 target = OptionGroup(parser, Style.BRIGHT + Style.UNDERLINE + "Target" + Style.RESET_ALL,
                      "This options has to be provided, to define the target URL. ")

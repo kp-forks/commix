@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "106"
+REVISION = "107"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -346,11 +346,8 @@ APPLICATION_X_ACCOUNT = "@commixproject"
 # Default User-Agent
 DEFAULT_USER_AGENT = APPLICATION + "/" + VERSION + " (" + APPLICATION_URL + ")"
 
-# Legal Disclaimer
-LEGAL_DISCLAIMER_MSG = "Usage of " + APPLICATION + " for attacking targets without prior mutual consent is illegal. " + \
-                       "It is the end user's responsibility to obey all applicable local, state and federal laws. " + \
-                       "Developers assume no liability and are not responsible for any misuse or damage caused by this program.\n"
-
+LEGAL_DISCLAIMER_MSG = "Attacking targets without prior mutual consent is illegal. " + \
+                       "Obeying applicable laws is your responsibility and "+ APPLICATION +" developers assume no liability.\n"
 # Random string generator
 RANDOM_STRING_GENERATOR = ''.join(random.choice(string.ascii_uppercase + string.digits + string.ascii_lowercase) for _ in range(10))
 # Random variable name (E-Z only).
@@ -720,6 +717,8 @@ TOTAL_OF_REQUESTS = 0
 # Log-file report state.
 LOGGED_FINDINGS_HEADER = False
 LAST_LOGGED_PARAMETER = None
+# The accumulating --report-json data, built only when that option is set.
+REPORT_JSON = None
 LAST_LOG_GROUP = "header"
 
 # The max help option length.

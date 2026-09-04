@@ -15,6 +15,7 @@ For more see the file 'readme/COPYING' for copying permission.
 import os
 import re
 import sys
+import json
 import shlex
 import tempfile
 from datetime import date
@@ -110,13 +111,15 @@ def create_log_file(url, output_dir):
 
   # The logs filename construction.
   filename = logs_path + settings.OUTPUT_FILE
+  http_request_method = settings.HTTPMETHOD.POST if menu.options.data else settings.HTTPMETHOD.GET
+  command = " ".join(shlex.quote(_) for _ in sys.argv)
+  started = str(date.today()) + settings.SINGLE_WHITESPACE + datetime.now().strftime("%H:%M:%S")
   try:
     with open(filename, 'w' if menu.options.flush_session else 'a', encoding=settings.DEFAULT_CODEC) as output_file:
       if not menu.options.no_logging:
-        http_request_method = settings.HTTPMETHOD.POST if menu.options.data else settings.HTTPMETHOD.GET
         output_file.write("Target: " + url + " (" + http_request_method + ")" + settings.END_LINE.LF)
-        output_file.write("Command: " + " ".join(shlex.quote(_) for _ in sys.argv) + settings.END_LINE.LF)
-        output_file.write("Started: " + str(date.today()) + settings.SINGLE_WHITESPACE + datetime.now().strftime("%H:%M:%S") + settings.END_LINE.LF)
+        output_file.write("Command: " + command + settings.END_LINE.LF)
+        output_file.write("Started: " + started + settings.END_LINE.LF)
   except IOError as err_msg:
     try:
       error_msg = str(err_msg.args[0]).split("] ")[1] + "."
@@ -127,7 +130,15 @@ def create_log_file(url, output_dir):
 
   if not menu.options.output_dir:
     filename = os.path.abspath(filename)
-    
+
+  if menu.options.report_json:
+    settings.REPORT_JSON = {
+      "target": url,
+      "http_method": http_request_method,
+      "command": command,
+      "started": started,
+    }
+
   return filename
 
 """
@@ -146,6 +157,33 @@ def add_line(filename, text, group=""):
     pass
 
 """
+Whether --report-json was given and the report is ready to receive data.
+"""
+def report_active():
+  return settings.REPORT_JSON is not None
+
+"""
+Record a single fact (hostname, current user, OS, ...) into the JSON report.
+"""
+def report_set_info(key, value):
+  if report_active():
+    settings.REPORT_JSON.setdefault("info", {})[key] = value
+
+"""
+Record one enumerated item (a user, a privilege row, a password hash, ...) into the JSON report.
+"""
+def report_add_enumeration(category, item):
+  if report_active():
+    settings.REPORT_JSON.setdefault("enumeration", {}).setdefault(category, []).append(item)
+
+"""
+Record one extracted file's content into the JSON report.
+"""
+def report_add_file(path, content):
+  if report_active():
+    settings.REPORT_JSON.setdefault("files", []).append({"path": path, "content": content})
+
+"""
 Add a confirmed finding in log files, in the same format the console summary prints it.
 """
 def add_finding(filename, injection_type, technique, http_request_method, vuln_parameter, payload, title=None):
@@ -162,6 +200,15 @@ def add_finding(filename, injection_type, technique, http_request_method, vuln_p
   payload = str(checks.url_decode(payload)).replace(settings.END_LINE.LF, settings.END_LINE.ESCAPED_LF)
   for line in checks.finding_summary_lines(technique, injection_type, payload, title):
     add_line(filename, settings.strip_ansi_codes(line), group="findings")
+  if report_active():
+    settings.REPORT_JSON.setdefault("findings", []).append({
+      "parameter": vuln_parameter,
+      "http_method": http_request_method,
+      "technique": checks.summary_technique_label(technique),
+      "type": injection_type[0].upper() + injection_type[1:],
+      "boundary": title,
+      "payload": payload,
+    })
 
 """
 Add any executed command and
@@ -170,6 +217,8 @@ execution output result in log files.
 def executed_command(filename, cmd, output):
   add_line(filename, "Executed command: " + cmd, group="command:" + cmd)
   add_line(filename, str(output.encode(settings.DEFAULT_CODEC).decode()), group="command:" + cmd)
+  if report_active():
+    settings.REPORT_JSON.setdefault("commands", []).append({"command": cmd, "output": output})
 
 """
 Fetched data logged to text files.
@@ -201,12 +250,31 @@ def add_footer(filename):
                      "   Target OS: " + settings.TARGET_OS.title(), group="footer")
 
 """
+Write the accumulated --report-json data to the requested file.
+"""
+def write_report():
+  if not report_active():
+    return
+  settings.REPORT_JSON["finished"] = str(date.today()) + settings.SINGLE_WHITESPACE + datetime.now().strftime("%H:%M:%S")
+  settings.REPORT_JSON["requests"] = settings.TOTAL_OF_REQUESTS
+  settings.REPORT_JSON["target_os"] = settings.TARGET_OS.title()
+  try:
+    with open(menu.options.report_json, 'w', encoding=settings.DEFAULT_CODEC) as output_file:
+      json.dump(settings.REPORT_JSON, output_file, indent=2, ensure_ascii=False)
+    info_msg = "Run results stored to the JSON file '" + menu.options.report_json + "'."
+    settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+  except IOError as err_msg:
+    error_msg = "Unable to write the JSON report to '" + menu.options.report_json + "' (" + str(err_msg) + ")."
+    settings.print_data_to_stdout(settings.print_error_msg(error_msg))
+
+"""
 Print logs notification.
 """
 def print_logs_notification(filename, url):
   if os.path.exists(settings.CLI_HISTORY):
     checks.save_cmd_history()
   add_footer(filename)
+  write_report()
   if settings.SHOW_LOGS_MSG == True and not menu.options.no_logging:
     if not settings.LOAD_SESSION:
       logs_notification(filename)

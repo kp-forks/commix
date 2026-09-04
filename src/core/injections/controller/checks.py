@@ -2451,6 +2451,7 @@ def print_ps_version(ps_version, filename, _):
     info_msg = "Powershell version: " + ps_version
     settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
     logs.add_line(filename, info_msg, group="info")
+    logs.report_set_info("powershell_version", ps_version)
   except ValueError:
     warn_msg = "Failed to identify the version of Powershell, "
     warn_msg += "which means some payloads or injection techniques may fail."
@@ -2468,6 +2469,7 @@ def print_hostname(shell, filename, _):
     info_msg = "Hostname: " +  str(shell)
     settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
     logs.add_line(filename, info_msg, group="info")
+    logs.report_set_info("hostname", str(shell))
   else:
     warn_msg = "Failed to identify the hostname."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -2482,6 +2484,7 @@ def print_current_user(cu_account, filename, _):
     info_msg = "Current user: " +  str(cu_account)
     settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
     logs.add_line(filename, info_msg, group="info")
+    logs.report_set_info("current_user", str(cu_account))
   else:
     warn_msg = "Failed to fetch the current user."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -2501,6 +2504,7 @@ def print_current_user_privs(shell, filename, _):
   info_msg = "Current user has elevated privileges: " +  str(priv)
   settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
   logs.add_line(filename, info_msg, group="info")
+  logs.report_set_info("current_user_elevated_privileges", priv == "True")
 """
 Print OS info
 """
@@ -2511,6 +2515,7 @@ def print_os_info(target_os, target_arch, filename, _):
     info_msg = "Operating system: " +  str(target_os) + settings.SINGLE_WHITESPACE + str(target_arch)
     settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
     logs.add_line(filename, info_msg, group="info")
+    logs.report_set_info("operating_system", str(target_os) + settings.SINGLE_WHITESPACE + str(target_arch))
   else:
     warn_msg = "Failed to fetch underlying operating system information."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -2594,6 +2599,7 @@ def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whi
           for name in sys_users_list:
             settings.print_data_to_stdout("  " + settings.SUB_CONTENT_SIGN_TYPE + name)
             logs.add_line(filename, "  * " + name, group="users")
+            logs.report_add_enumeration("users", name)
       else:
         warn_msg = "It seems you do not have permission to enumerate operating system users."
         settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -2646,6 +2652,7 @@ def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whi
                 parsed_users.append((fields[0], fields[1], fields[2]))
                 settings.print_data_to_stdout("  " + settings.SUB_CONTENT_SIGN_TYPE + fields[0])
                 logs.add_line(filename, "  * " + fields[0], group="users")
+                logs.report_add_enumeration("users", fields[0])
               except ValueError:
                 if count == 1 :
                   warn_msg = "It seems '" + settings.PASSWD_FILE + "' file is not in the "
@@ -2669,6 +2676,7 @@ def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whi
                 note = " (" + label + ", uid=" + uid + ", home directory '" + homedir + "')" if label else " (uid=" + uid + ", home directory '" + homedir + "')"
                 settings.print_data_to_stdout("  " + settings.SUB_CONTENT_SIGN_TYPE + name + note)
                 logs.add_line(filename, "  * " + name + note, group="privileges")
+                logs.report_add_enumeration("privileges", {"name": name, "uid": uid, "home_directory": homedir, "type": label})
       else:
         warn_msg = "It seems you do not have permission "
         warn_msg += "to read the contents of the file '" + settings.PASSWD_FILE + "'."
@@ -2705,6 +2713,7 @@ def print_passes(sys_passes, filename, _, interpreter):
             if not "*" in fields[1] and not "!" in fields[1] and fields[1] != "":
               settings.print_data_to_stdout("  " + settings.SUB_CONTENT_SIGN_TYPE + fields[0] + ":" + fields[1])
               logs.add_line(filename, "  * " + fields[0] + ":" + fields[1], group="passwords")
+              logs.report_add_enumeration("passwords", {"username": fields[0], "hash": fields[1]})
         # Check for appropriate '/etc/shadow' format.
         except IndexError:
           if count == 1 :
@@ -2793,8 +2802,7 @@ Print single OS command
 def print_single_os_cmd(cmd, output, filename):
   if len(output) > 1:
     settings.print_data_to_stdout(settings.print_retrieved_data("Execution output", output))
-    logs.add_line(filename, "Executed command: " + cmd, group="command:" + cmd)
-    logs.add_line(filename, str(output), group="command:" + cmd)
+    logs.executed_command(filename, cmd, output)
   else:
     err_msg = common.invalid_cmd_output(cmd)
     settings.print_data_to_stdout(settings.print_error_msg(err_msg))
@@ -2943,6 +2951,7 @@ def file_read_status(shell, file_to_read, filename):
     _ = "Retrieved file content"
     settings.print_data_to_stdout(settings.print_retrieved_data(_, shell))
     logs.add_line(filename, "Extracted content of the file '" + file_to_read + "': " + shell, group="file:" + file_to_read)
+    logs.report_add_file(file_to_read, shell)
   else:
     warn_msg = "Retrieved no content for the file '" + file_to_read + "'. "
     warn_msg += "This could mean the file does not exist, is empty, or you do not have permission to read it."

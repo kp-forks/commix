@@ -15,7 +15,6 @@ For more see the file 'readme/COPYING' for copying permission.
 
 import re
 import os
-import sys
 import time
 import random
 import string
@@ -31,9 +30,7 @@ from src.core.requests import parameters
 from src.core.modules import modules_handler
 from src.core.requests import authentication
 from src.core.injections.controller import checks
-from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.colorama import Fore, Back, Style, init
 from src.core.injections.blind.techniques.time_based import tb_handler
 from src.core.injections.semiblind.techniques.file_based import fb_handler
 from src.core.injections.semiblind.techniques.tempfile_based import tfb_handler
@@ -77,6 +74,7 @@ def basic_payload_generator():
                                               "%26echo " + marker1 + "%26for /f \"tokens=*\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_interpreter_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2
                                               ]
   settings.BASIC_COMMAND_INJECTION_RESULT = re.escape(marker1) + r"\s*" + re.escape(str(rand_a + rand_b)) + r"\s*" + re.escape(marker2)
+
 """
 Initializing basic level check status
 """
@@ -110,7 +108,6 @@ def check_for_stored_sessions(url, check_parameter, http_request_method):
   settings.STORED_TECHNIQUES = {}
   if not menu.options.ignore_session and not menu.options.flush_session:
     if os.path.isfile(settings.SESSION_FILE) and not settings.REQUIRED_AUTHENTICATION:
-      # Check every call site instead of only the first parameter or header.
       url, check_parameter = session_handler.check_stored_injection_points(url, check_parameter, http_request_method)
       # Load stored techniques once so each can resume without re-querying storage.
       settings.STORED_TECHNIQUES = session_handler.load_stored_techniques(url, check_parameter, http_request_method)
@@ -125,7 +122,7 @@ def heuristic_request(url, http_request_method, check_parameter, payload, whites
   tmp_url = url
   payload, prefix = parameters.prefixes(payload, prefix="")
   payload, suffix = parameters.suffixes(payload, suffix="")
-  payload = payload.replace(settings.SINGLE_WHITESPACE, whitespace)
+  payload = checks.tamper_outside_single_quotes(payload, lambda part: part.replace(settings.SINGLE_WHITESPACE, whitespace))
   if settings.IS_JSON:
     payload = _urllib.parse.unquote(payload)
   payload = checks.perform_payload_modification(payload)
@@ -169,7 +166,7 @@ def heuristic_request(url, http_request_method, check_parameter, payload, whites
 """
 Heuristic (basic) test for command injection
 """
-def command_injection_heuristic_basic(url, http_request_method, check_parameter, the_type, header_name, inject_http_headers):
+def command_injection_heuristic_basic(url, http_request_method, check_parameter):
   check_parameter = check_parameter.lstrip().rstrip()
   checks.perform_payload_modification(payload="")
   basic_payload_generator()
@@ -193,13 +190,13 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter,
             match = re.search(settings.BASIC_COMMAND_INJECTION_RESULT, html_data)
             if match:
               settings.IDENTIFIED_COMMAND_INJECTION = True
-              possible_os = ('Unix-like', 'Windows')[_ != 1]
+              possible_os = ('Unix-like shell', 'Windows')[_ != 1]
               if settings.OS.UNIX.lower() in possible_os.lower():
                 settings.TARGET_OS = settings.OS.UNIX
               else:
                 settings.TARGET_OS = settings.OS.WINDOWS
               info_msg = "Heuristic (basic) test shows that "
-              info_msg += settings.CHECKING_PARAMETER + " might be injectable (possible OS: '" + possible_os + "')."
+              info_msg += settings.CHECKING_PARAMETER + " might be injectable (possible operating system: '" + possible_os + "')."
               settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
               settings.SKIP_CODE_INJECTIONS = True
               break
@@ -214,7 +211,7 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter,
 """
 Heuristic (basic) test for code injection warnings
 """
-def code_injections_heuristic_basic(url, http_request_method, check_parameter, the_type, header_name, inject_http_headers):
+def code_injections_heuristic_basic(url, http_request_method, check_parameter):
   check_parameter = check_parameter.lstrip().rstrip()
   injection_type = settings.INJECTION_TYPE.RESULTS_BASED_CE
   technique = settings.INJECTION_TECHNIQUE.DYNAMIC_CODE
@@ -240,6 +237,7 @@ def code_injections_heuristic_basic(url, http_request_method, check_parameter, t
             info_msg = "Heuristic (basic) test shows that "
             info_msg += settings.CHECKING_PARAMETER + " might be injectable via " + technique + "."
             settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
+            settings.SKIP_COMMAND_INJECTIONS = True
             break
 
     settings.EVAL_BASED_STATE = False
@@ -250,20 +248,30 @@ def code_injections_heuristic_basic(url, http_request_method, check_parameter, t
     raise SystemExit()
 
 """
+Run one technique via the given exploit() callable, updating its own state flag in settings - the shared skeleton behind the 4 functions below.
+"""
+def run_technique(injection_type, technique, state_name, skip_flag_name, tech_letter, exploit):
+  setattr(settings, state_name, None)
+  if not getattr(settings, skip_flag_name):
+    if len(menu.options.tech) == 0 or tech_letter in menu.options.tech:
+      setattr(settings, state_name, exploit() != False)
+  state = getattr(settings, state_name)
+  if state == None or getattr(settings, skip_flag_name):
+    checks.skipping_technique(technique, injection_type, state)
+
+"""
 Check if it's exploitable via classic command injection technique.
 """
 def classic_command_injection_technique(url, timesec, filename, http_request_method):
   injection_type = settings.INJECTION_TYPE.RESULTS_BASED_CI
   technique = settings.INJECTION_TECHNIQUE.CLASSIC
-  settings.CLASSIC_STATE = None
-  if not settings.SKIP_COMMAND_INJECTIONS:
-    if (len(menu.options.tech) == 0 or "c" in menu.options.tech):
-      if cb_handler.exploitation(url, timesec, filename, http_request_method, injection_type, technique) != False:
-        settings.CLASSIC_STATE = settings.IDENTIFIED_COMMAND_INJECTION = True
-      else:
-        settings.CLASSIC_STATE = False
-  if settings.CLASSIC_STATE == None or settings.SKIP_COMMAND_INJECTIONS:
-    checks.skipping_technique(technique, injection_type, settings.CLASSIC_STATE)
+  def exploit():
+    result = cb_handler.exploitation(url, timesec, filename, http_request_method, injection_type, technique)
+    if result != False:
+      settings.IDENTIFIED_COMMAND_INJECTION = True
+      settings.SKIP_CODE_INJECTIONS = True
+    return result
+  run_technique(injection_type, technique, "CLASSIC_STATE", "SKIP_COMMAND_INJECTIONS", "c", exploit)
 
 """
 Check if it's exploitable via dynamic code evaluation technique.
@@ -271,15 +279,12 @@ Check if it's exploitable via dynamic code evaluation technique.
 def dynamic_code_evaluation_technique(url, timesec, filename, http_request_method):
   injection_type = settings.INJECTION_TYPE.RESULTS_BASED_CE
   technique = settings.INJECTION_TECHNIQUE.DYNAMIC_CODE
-  settings.EVAL_BASED_STATE = None
-  if not settings.SKIP_CODE_INJECTIONS:
-    if (len(menu.options.tech) == 0 or "e" in menu.options.tech):
-      if eb_handler.exploitation(url, timesec, filename, http_request_method, injection_type, technique) != False:
-        settings.EVAL_BASED_STATE = True
-      else:
-        settings.EVAL_BASED_STATE = False
-  if settings.EVAL_BASED_STATE == None or not settings.SKIP_CODE_INJECTIONS:
-    checks.skipping_technique(technique, injection_type, settings.EVAL_BASED_STATE)
+  def exploit():
+    result = eb_handler.exploitation(url, timesec, filename, http_request_method, injection_type, technique)
+    if result != False:
+      settings.SKIP_COMMAND_INJECTIONS = True
+    return result
+  run_technique(injection_type, technique, "EVAL_BASED_STATE", "SKIP_CODE_INJECTIONS", "e", exploit)
 
 """
 Check if it's exploitable via time-based command injection technique.
@@ -287,15 +292,12 @@ Check if it's exploitable via time-based command injection technique.
 def timebased_command_injection_technique(url, timesec, filename, http_request_method, url_time_response):
   injection_type = settings.INJECTION_TYPE.BLIND
   technique = settings.INJECTION_TECHNIQUE.TIME_BASED
-  settings.TIME_BASED_STATE = None
-  if not settings.SKIP_COMMAND_INJECTIONS:
-    if (len(menu.options.tech) == 0 or "t" in menu.options.tech):
-      if tb_handler.exploitation(url, timesec, filename, http_request_method, url_time_response, injection_type, technique) != False:
-        settings.TIME_BASED_STATE = settings.IDENTIFIED_COMMAND_INJECTION = True
-      else:
-        settings.TIME_BASED_STATE = False
-  if settings.TIME_BASED_STATE == None or settings.SKIP_COMMAND_INJECTIONS:
-    checks.skipping_technique(technique, injection_type, settings.TIME_BASED_STATE)
+  def exploit():
+    result = tb_handler.exploitation(url, timesec, filename, http_request_method, url_time_response, injection_type, technique)
+    if result != False:
+      settings.IDENTIFIED_COMMAND_INJECTION = True
+    return result
+  run_technique(injection_type, technique, "TIME_BASED_STATE", "SKIP_COMMAND_INJECTIONS", "t", exploit)
 
 """
 Check if it's exploitable via file-based command injection technique.
@@ -303,33 +305,28 @@ Check if it's exploitable via file-based command injection technique.
 def filebased_command_injection_technique(url, timesec, filename, http_request_method, url_time_response):
   injection_type = settings.INJECTION_TYPE.SEMI_BLIND
   technique = settings.INJECTION_TECHNIQUE.FILE_BASED
-  settings.FILE_BASED_STATE = None
-  if not settings.SKIP_COMMAND_INJECTIONS:
-    if (len(menu.options.tech) == 0 or "f" in menu.options.tech):
-      # Resume parameters resolved via tempfile fallback instead of retrying file-based first.
-      if settings.LOAD_SESSION and settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED in settings.STORED_TECHNIQUES \
-         and settings.INJECTION_TECHNIQUE.FILE_BASED not in settings.STORED_TECHNIQUES:
-        # Skip the writable-directory prompt when resuming without live probing.
-        result = tfb_handler.exploitation(url, timesec, filename, "", http_request_method, url_time_response)
-      else:
-        result = fb_handler.exploitation(url, timesec, filename, http_request_method, url_time_response, injection_type, technique)
-      if result != False:
-        settings.FILE_BASED_STATE = settings.IDENTIFIED_COMMAND_INJECTION = True
-      else:
-        settings.FILE_BASED_STATE = False
-  if settings.FILE_BASED_STATE == None or settings.SKIP_COMMAND_INJECTIONS:
-    checks.skipping_technique(technique, injection_type, settings.FILE_BASED_STATE)
+  def exploit():
+    if settings.LOAD_SESSION and settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED in settings.STORED_TECHNIQUES \
+       and settings.INJECTION_TECHNIQUE.FILE_BASED not in settings.STORED_TECHNIQUES:
+      # Skip the writable-directory prompt when resuming, but still need a real tmp_path.
+      result = tfb_handler.exploitation(url, timesec, filename, checks.default_tmp_path(), http_request_method, url_time_response)
+    else:
+      result = fb_handler.exploitation(url, timesec, filename, http_request_method, url_time_response, injection_type, technique)
+    if result != False:
+      settings.IDENTIFIED_COMMAND_INJECTION = True
+    return result
+  run_technique(injection_type, technique, "FILE_BASED_STATE", "SKIP_COMMAND_INJECTIONS", "f", exploit)
 
 """
 Check parameter in HTTP header.
 """
 def check_parameter_in_http_header(check_parameter):
+  inject_http_headers = False
   if any(x in check_parameter.lower() for x in settings.HTTP_HEADERS) or \
      check_parameter.lower() in settings.CUSTOM_HEADER_NAME.lower():
     if settings.ACCEPT_VALUE not in settings.CUSTOM_HEADER_VALUE:
       inject_http_headers = True
   else:
-    inject_http_headers = False
     init_http_header_injection_status()
   return inject_http_headers
 
@@ -466,7 +463,6 @@ def attempt_skip_testable_value(url, http_request_method, check_parameter):
     settings.TESTABLE_VALUE = placeholder
     settings.TESTABLE_VALUE_OPTIMIZED = True
     session_handler.import_testable_value_status(url, check_parameter, http_request_method, placeholder)
-    # Don't reset settings.RESPONSE_TIMES - MIN_SAFE_TIMESEC already floors timesec, and resetting forces a slow, silent re-warm-up.
     if settings.VERBOSITY_LEVEL != 0:
       debug_msg = "The real parameter value isn't required. Skipping it for faster requests."
       settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
@@ -479,7 +475,7 @@ def attempt_skip_testable_value(url, http_request_method, check_parameter):
 """
 Proceed to the injection process for the appropriate parameter.
 """
-def injection_proccess(url, check_parameter, http_request_method, filename, timesec):
+def injection_process(url, check_parameter, http_request_method, filename, timesec):
   settings.NOT_TESTABLE_PARAMETERS = False
 
   check_parameter_dynamism(url, http_request_method, check_parameter)
@@ -538,8 +534,6 @@ def injection_proccess(url, check_parameter, http_request_method, filename, time
         url_time_response = 0
       else:
         timesec, url_time_response = requests.estimate_response_time(url, timesec, http_request_method)
-        checks.warm_up_response_baseline(url, http_request_method)
-        checks.check_lagging()
 
     # Load modules
     modules_handler.load_modules(url, http_request_method, filename)
@@ -550,6 +544,8 @@ def injection_proccess(url, check_parameter, http_request_method, filename, time
       settings.CHECKING_PARAMETER += ('', ' JSON')[settings.IS_JSON] + ('', ' SOAP/XML')[settings.IS_XML]
     if header_name == settings.COOKIE :
        settings.CHECKING_PARAMETER += str(header_name) + str(the_type) + str(inject_parameter)
+    elif the_type == "HTTP Header":
+       settings.CHECKING_PARAMETER += check_parameter.title() + " HTTP Header"
     else:
        settings.CHECKING_PARAMETER += str(the_type) + str(header_name) + str(inject_parameter)
 
@@ -572,15 +568,12 @@ def injection_proccess(url, check_parameter, http_request_method, filename, time
 
         try:
           if not (len(menu.options.tech) == 1 and "e" in menu.options.tech):
-            url = command_injection_heuristic_basic(url, http_request_method, check_parameter, the_type, header_name, inject_http_headers)
+            url = command_injection_heuristic_basic(url, http_request_method, check_parameter)
 
           if not settings.IDENTIFIED_COMMAND_INJECTION and "e" in menu.options.tech:
             # Check for identified warnings
-            url = code_injections_heuristic_basic(url, http_request_method, check_parameter, the_type, header_name, inject_http_headers)
-            if settings.IDENTIFIED_WARNINGS or settings.IDENTIFIED_PHPINFO:
-              checks.skip_testing(filename, url)
+            url = code_injections_heuristic_basic(url, http_request_method, check_parameter)
         except KeyboardInterrupt:
-          # Nested try - a sibling except: here would never catch what handle_detection_interrupt() raises.
           try:
             checks.handle_detection_interrupt(filename, url)
           except (settings.SkipTechniqueException, settings.RetryTechniqueException):
@@ -616,12 +609,23 @@ def injection_proccess(url, check_parameter, http_request_method, filename, time
         if checks.procced_with_file_based_technique():
           menu.options.tech = "f"
 
+      def _time_related_resume_redundant():
+        # A resumed finding is already confirmed, so re-verifying the slow ones adds nothing
+        # when a results-based technique is stored too.
+        return settings.LOAD_SESSION and not settings.USER_APPLIED_TECHNIQUE and any(
+          _ in settings.STORED_TECHNIQUES for _ in (settings.INJECTION_TECHNIQUE.CLASSIC, settings.INJECTION_TECHNIQUE.DYNAMIC_CODE))
+
       def _run_time_based():
+        if _time_related_resume_redundant():
+          return
         if len(menu.options.tech) == 0 or "t" in menu.options.tech:
           _ensure_time_warmup()
+          checks.warm_up_response_baseline(url, http_request_method)
         return timebased_command_injection_technique(url, timesec, filename, http_request_method, url_time_response)
 
       def _run_file_based():
+        if _time_related_resume_redundant():
+          return
         if len(menu.options.tech) == 0 or "f" in menu.options.tech:
           _ensure_time_warmup()
         return filebased_command_injection_technique(url, timesec, filename, http_request_method, url_time_response)
@@ -641,7 +645,6 @@ def injection_proccess(url, check_parameter, http_request_method, filename, time
         except settings.SkipTechniqueException:
           technique_idx += 1
         except settings.RetryTechniqueException:
-          # Same index again - redo this technique from the top instead of moving past it.
           pass
         except settings.EndDetectionPhaseException:
           end_detection = True
@@ -654,10 +657,29 @@ def injection_proccess(url, check_parameter, http_request_method, filename, time
         settings.print_data_to_stdout(settings.print_bold_warning_msg(warn_msg))
       else:
         if settings.LOAD_SESSION:
-          checks.quit(filename, url, _ = False)
+          if settings.STORED_TECHNIQUES:
+            rows = [(row[1], row[2], row[5], row[10], "HTTP Header" if row[11] else row[12]) for row in settings.STORED_TECHNIQUES.values()]
+            checks.resumed_injection_points_summary(rows)
+          checks.suggest_os_shell()
+          checks.quit(filename, url, hard_exit=False)
+        elif settings.CONFIRMED_INJECTION_POINTS and not settings.ASKED_KEEP_TESTING:
+          settings.ASKED_KEEP_TESTING = True
+          if checks.prompt_keep_testing(url):
+            checks.quit(filename, url, hard_exit=False)
 
     if not settings.CHECK_BOTH_OS or end_detection:
       break
+
+"""
+Whether this parameter already has a stored session - used to test known-vulnerable ones first.
+"""
+def has_stored_session(url, check_parameter, http_request_method):
+  if menu.options.ignore_session or menu.options.flush_session or not os.path.isfile(settings.SESSION_FILE):
+    return False
+  try:
+    return bool(session_handler.load_stored_techniques(url, check_parameter, http_request_method))
+  except Exception:
+    return False
 
 """
 Perform injection for a specific HTTP header (User-Agent, Referer, or Host)
@@ -682,7 +704,7 @@ def http_headers_injection(url, http_request_method, filename, timesec):
     reset_flag = check_parameter != header_name
     if not reset_flag:
       try:
-        reset_flag = not injection_proccess(new_url, check_parameter, http_request_method, filename, timesec)
+        reset_flag = not injection_process(new_url, check_parameter, http_request_method, filename, timesec)
       except settings.NextParameterException:
         reset_flag = True
     if reset_flag:
@@ -693,40 +715,35 @@ def http_headers_injection(url, http_request_method, filename, timesec):
 
   # Determine whether a header should be tested for injection
   def test_header(header_attr):
-    test_param = menu.options.test_parameter
-    skip_param = menu.options.skip_parameter
     header_value = getattr(settings, header_attr).lower()
 
     # Check if the corresponding injection flag is already active
     if getattr(settings, header_attr.upper() + "_INJECTION"):
       return True
 
-    # Check if explicitly included in test_parameter
-    if isinstance(test_param, str) and header_value in test_param.lower():
-      return True
-
-    # Check if not excluded via skip_parameter
-    if isinstance(skip_param, str) and header_value not in skip_param.lower():
-      return True
-
-    return False
+    return checks.is_parameter_testable(header_value)
 
   # If no specific test or skip parameters and no injection flags are set, test all headers
   no_injection_flags = not settings.USER_AGENT_INJECTION and not settings.REFERER_INJECTION and not settings.HOST_INJECTION
   no_test_or_skip = menu.options.test_parameter is None and menu.options.skip_parameter is None
 
+  # Test already-confirmed headers first, not in fixed order.
+  headers = ["USER_AGENT", "REFERER", "HOST"]
+  headers.sort(key=lambda header_attr: not has_stored_session(url, getattr(settings, header_attr).lower(), http_request_method))
+  header_args = {
+    "USER_AGENT": ("agent", "USER_AGENT_INJECTION"),
+    "REFERER": ("referer", "REFERER_INJECTION"),
+    "HOST": ("host", "HOST_INJECTION"),
+  }
+
   if no_injection_flags and no_test_or_skip:
-    inject_header("USER_AGENT", "agent", "USER_AGENT_INJECTION")
-    inject_header("REFERER", "referer", "REFERER_INJECTION")
-    inject_header("HOST", "host", "HOST_INJECTION")
+    for header_attr in headers:
+      inject_header(header_attr, *header_args[header_attr])
   else:
     # Conditional injection based on test/skip flags or predefined injection settings
-    if test_header("USER_AGENT"):
-      inject_header("USER_AGENT", "agent", "USER_AGENT_INJECTION")
-    if test_header("REFERER"):
-      inject_header("REFERER", "referer", "REFERER_INJECTION")
-    if test_header("HOST"):
-      inject_header("HOST", "host", "HOST_INJECTION")
+    for header_attr in headers:
+      if test_header(header_attr):
+        inject_header(header_attr, *header_args[header_attr])
 
 """
 Inject Cookie parameters
@@ -747,7 +764,7 @@ def cookie_injection(url, http_request_method, filename, timesec):
       cookie_parameters_list = []
       cookie_parameters_list.append(cookie_parameters)
       cookie_parameters = cookie_parameters_list
-    do_injection(cookie_parameters, settings.COOKIE, header_name, url, http_request_method, filename, timesec)
+    do_injection(cookie_parameters, settings.COOKIE, url, http_request_method, filename, timesec)
 
   if settings.COOKIE_INJECTION:
     # Restore cookie value
@@ -767,7 +784,7 @@ def filtered_testable_parameters():
 """
 Process a list of parameters to test for injection vulnerabilities.
 """
-def do_injection(found, data_type, header_name, url, http_request_method, filename, timesec):
+def do_injection(found, data_type, url, http_request_method, filename, timesec):
 
   """
   Validate parameter names using allowed characters:
@@ -811,7 +828,7 @@ def do_injection(found, data_type, header_name, url, http_request_method, filena
     contextual_name = get_contextual_name(check_param)
     url, check_param = define_check_parameter(found[index], url)
     url, check_param = check_for_stored_sessions(url, check_param, http_request_method)
-    injection_proccess(url, check_param, http_request_method, filename, timesec)
+    injection_process(url, check_param, http_request_method, filename, timesec)
     settings.TESTED_PARAMETERS_LIST.append(contextual_name)
 
   check_parameters = []
@@ -832,20 +849,11 @@ def do_injection(found, data_type, header_name, url, http_request_method, filena
 
   # Prepare testable parameters
   filtered_testable_parameters()
-  checks.testable_parameters(url, check_parameters, header_name)
+  checks.testable_parameters(url, check_parameters)
 
-  # Exclude parameters that already contain the inject tag
-  base_params = {
-    param for param in settings.TESTABLE_PARAMETERS_LIST
-    if settings.INJECT_TAG not in param
-  }
-
-  # Add custom marker parameters if enabled
+  # Custom marker parameters are always targeted, regardless of -p/--skip.
   custom_params = set(settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST) \
     if settings.CUSTOM_INJECTION_MARKER else set()
-
-  # Final set of injection targets
-  injection_targets = base_params.union(custom_params)
 
   # Test already-confirmed parameters first, not in request order.
   if not menu.options.ignore_session and not menu.options.flush_session and os.path.isfile(settings.SESSION_FILE):
@@ -867,15 +875,7 @@ def do_injection(found, data_type, header_name, url, http_request_method, filena
     except (KeyError, ValueError):
       continue
 
-    if settings.USER_DEFINED_POST_DATA:
-      active_targets = injection_targets
-    else:
-      if any(param in injection_targets for param in check_parameters):
-        active_targets = injection_targets
-      else:
-        active_targets = check_parameters
-
-    if check_param in active_targets or not filtered_testable_parameters():
+    if check_param in custom_params or checks.is_parameter_testable(check_param):
       try:
         injection_call(url, check_param)
       except settings.NextParameterException:
@@ -887,10 +887,9 @@ Check if HTTP Method is GET.
 def get_request(url, http_request_method, filename, timesec):
 
   found_url = parameters.do_GET_check(url, http_request_method)
-  header_name = ""
 
   if found_url != False:
-    do_injection(found_url, settings.HTTPMETHOD.GET, header_name, url, http_request_method, filename, timesec)
+    do_injection(found_url, settings.HTTPMETHOD.GET, url, http_request_method, filename, timesec)
 
 """
 Check if HTTP Method is POST.
@@ -899,7 +898,6 @@ def post_request(url, http_request_method, filename, timesec):
 
   parameter = settings.USER_DEFINED_POST_DATA
   found_parameter = parameters.do_POST_check(parameter, http_request_method)
-  header_name = ""
 
   if type(found_parameter) is str:
     found_parameter_list = []
@@ -913,7 +911,7 @@ def post_request(url, http_request_method, filename, timesec):
     # Remove whitespaces
     found_parameter = [x.replace(settings.SINGLE_WHITESPACE, "") for x in found_parameter]
 
-  do_injection(found_parameter, settings.HTTPMETHOD.POST, header_name, url, http_request_method, filename, timesec)
+  do_injection(found_parameter, settings.HTTPMETHOD.POST, url, http_request_method, filename, timesec)
 
 """
 Perform GET / POST parameters checks
@@ -967,7 +965,7 @@ def custom_headers_checks(url, http_request_method, filename, timesec):
       settings.CUSTOM_HEADER_VALUE = settings.CUSTOM_HEADERS_NAMES[name].split(": ")[1].replace(settings.ASTERISK_MARKER, settings.INJECT_TAG)
       url, check_parameter = check_for_stored_sessions(url, check_parameter, http_request_method)
       try:
-        if check_parameter != header_name or not injection_proccess(url, check_parameter, http_request_method, filename, timesec):
+        if check_parameter != header_name or not injection_process(url, check_parameter, http_request_method, filename, timesec):
           settings.CUSTOM_HEADER_INJECTION = False
       except settings.NextParameterException:
         settings.CUSTOM_HEADER_INJECTION = False
@@ -1134,6 +1132,8 @@ def do_check(url, http_request_method, filename):
 
     # Check target URL for CGI scripts vulnerable to Shellshock.
     checks.check_CGI_scripts(url)
+    # Modules don't need a normal testable parameter to run.
+    modules_handler.load_modules(url, http_request_method, filename)
     perform_checks(url, http_request_method, filename)
       
     # All injection techniques seems to be failed!
@@ -1146,7 +1146,7 @@ def do_check(url, http_request_method, filename):
           err_msg += " Try to increase value for '--level' option"
           err_msg += " if you wish to perform more tests."
         if settings.USER_APPLIED_TECHNIQUE or settings.SKIP_TECHNIQUES:
-          err_msg += " You can try to rerun without providing the option "
+          err_msg += " You can try to re-run without providing the option "
           if not settings.SKIP_TECHNIQUES :
             err_msg += "'--technique'."
           else:
@@ -1162,11 +1162,14 @@ def do_check(url, http_request_method, filename):
         if settings.MULTI_TARGETS:
           err_msg += " Skipping to the next target."
       settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
-    else:
+      if not settings.MULTI_TARGETS:
+        common.show_http_error_codes()
+        raise SystemExit()
+    elif settings.MULTI_TARGETS:
       logs.print_logs_notification(filename, url)
-    if not settings.MULTI_TARGETS:
-      common.show_http_error_codes()
-      raise SystemExit()
+    else:
+      # Summary, deferred actions, os-shell entry, log notice and exit all happen in quit().
+      checks.quit(filename, url, hard_exit=False)
 
   except KeyboardInterrupt:
     checks.handle_early_interrupt(filename, url)

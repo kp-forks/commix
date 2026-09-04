@@ -14,14 +14,11 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 import re
-import os
-import sys
 import json
 from src.utils import menu
 from src.utils import settings
 from src.core.injections.controller import checks
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.colorama import Fore, Back, Style, init
 from src.thirdparty.flatten_json.flatten_json import flatten, unflatten_list
 from src.thirdparty.odict import OrderedDict
 
@@ -236,7 +233,7 @@ Custom injection marker character bookkeeping.
 def register_custom_injection_marker(vuln_parameter, value_with_marker):
   try:
     settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST.append(vuln_parameter) if vuln_parameter not in settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST else settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST
-    settings.TESTABLE_PARAMETERS_LIST.append(vuln_parameter) if vuln_parameter not in settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST else settings.TESTABLE_PARAMETERS_LIST
+    settings.TESTABLE_PARAMETERS_LIST.append(vuln_parameter) if vuln_parameter not in settings.TESTABLE_PARAMETERS_LIST else settings.TESTABLE_PARAMETERS_LIST
     settings.PRE_CUSTOM_INJECTION_MARKER_CHAR = value_with_marker.split(settings.INJECT_TAG)[0]
     settings.POST_CUSTOM_INJECTION_MARKER_CHAR = value_with_marker.split(settings.INJECT_TAG)[1]
   except Exception:
@@ -480,7 +477,6 @@ def handle_single_post_parameter(parameter, multi_parameters, http_request_metho
             parameter = parameter.replace(value, value.replace(settings.ASTERISK_MARKER, settings.INJECT_TAG))
         else:
           if not settings.ASTERISK_MARKER in value and not settings.CUSTOM_INJECTION_MARKER_CHAR in value:
-            # Anchor on ":<value>" to avoid matching inside a key name.
             anchor = ":" + settings.SINGLE_WHITESPACE + value
             if settings.IS_JSON and anchor not in parameter:
               anchor = ":" + value
@@ -621,7 +617,7 @@ def vuln_POST_param(parameter, url):
     settings.TESTABLE_VALUE = str(flat[vuln_key]).split(settings.INJECT_TAG)[0]
     if settings.CUSTOM_INJECTION_MARKER:
       settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST.append(vuln_parameter) if vuln_parameter not in settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST else settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST
-      settings.TESTABLE_PARAMETERS_LIST.append(vuln_parameter) if vuln_parameter not in settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST else settings.TESTABLE_PARAMETERS_LIST
+      settings.TESTABLE_PARAMETERS_LIST.append(vuln_parameter) if vuln_parameter not in settings.TESTABLE_PARAMETERS_LIST else settings.TESTABLE_PARAMETERS_LIST
 
   # XML data format.
   elif settings.IS_XML:
@@ -705,12 +701,13 @@ def suffixes(payload, suffix):
     suffix = ""
 
   post_custom = resolve_marker_component("", settings.POST_CUSTOM_INJECTION_MARKER_CHAR)
-  if post_custom is not None and post_custom not in suffix:
-    suffix = suffix + post_custom
+  if post_custom:
+    if post_custom not in suffix:
+      suffix = suffix + post_custom
   # Check if defined "--suffix" option.
-  if menu.options.suffix and not settings.LOAD_SESSION:
+  elif menu.options.suffix and not settings.LOAD_SESSION:
     if not menu.options.suffix in suffix:
-      suffix = menu.options.suffix + suffix
+      suffix = suffix + menu.options.suffix
 
   payload = payload + suffix
 
@@ -731,7 +728,7 @@ def do_cookie_check(cookie):
     settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
     raise SystemExit()
 
-  if len([s for s in multi_parameters if "=" in s]) == 0:
+  if len([s for s in multi_parameters if "=" in s]) == 0 and not menu.options.shellshock:
     checks.no_parameters_found()
 
   _ = []

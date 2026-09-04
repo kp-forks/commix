@@ -13,25 +13,18 @@ the Free Software Foundation, either version 3 of the License, or
 For more see the file 'readme/COPYING' for copying permission.
 """
 
-import re
-import sys
-import errno
-import base64
-try:
-  from base64 import encodebytes
-except ImportError:
-  from base64 import encodestring as encodebytes
-from src.utils import menu
 from src.utils import settings
 from src.utils import common
 from src.core.injections.controller import checks
-from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.colorama import Fore, Back, Style, init
 
 class Request(_urllib.request.Request):
+  def __init__(self, *args, method=None, **kwargs):
+    self._method = method
+    _urllib.request.Request.__init__(self, *args, **kwargs)
+
   def get_method(self):
-    return settings.HTTPMETHOD.HEAD
+    return self._method or _urllib.request.Request.get_method(self)
 
 class RedirectHandler(_urllib.request.HTTPRedirectHandler, object):
   """
@@ -42,20 +35,21 @@ class RedirectHandler(_urllib.request.HTTPRedirectHandler, object):
     if code in (301, 302, 303, 307):
       settings.REDIRECT_CODE = code
       if not settings.FOLLOW_REDIRECT:
-        # Not following - don't treat its status code as an error either.
         if code not in settings.IGNORE_CODE:
           settings.IGNORE_CODE.append(code)
         return None
+      # Preserve the original method, not HEAD.
       return Request(newurl.replace(' ', '%20'),
                      data=request.data,
-                     headers=request.headers
+                     headers=request.headers,
+                     method=request.get_method()
                      )
     else:
       err_msg = str(_urllib.error.HTTPError(request.get_full_url(), code, msg, headers, fp)).replace(": "," (")
       settings.print_data_to_stdout(settings.print_critical_msg(err_msg + ")."))
       raise SystemExit()
 
-def do_check(request, url, redirect_url, http_request_method):
+def do_check(url, redirect_url):
   """
   This functinality is based on Filippo's Valsorda script [1].
   ---

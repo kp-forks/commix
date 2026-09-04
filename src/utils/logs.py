@@ -15,9 +15,8 @@ For more see the file 'readme/COPYING' for copying permission.
 import os
 import re
 import sys
-import time
+import shlex
 import tempfile
-import sqlite3
 from datetime import date
 from datetime import datetime
 from src.utils import menu
@@ -26,7 +25,6 @@ from src.utils import settings
 from src.utils import session_handler
 from src.core.injections.controller import checks
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.colorama import Fore, Back, Style, init
 
 """
 1. Generate injection logs (logs.txt) in "./ouput" file.
@@ -107,21 +105,18 @@ def create_log_file(url, output_dir):
   else:
     settings.SESSION_FILE = logs_path + "session.db"
 
-  # Load command history
-  if settings.LOAD_SESSION == True and os.path.exists(settings.CLI_HISTORY):
+  if os.path.exists(settings.CLI_HISTORY):
     checks.load_cmd_history()
 
   # The logs filename construction.
   filename = logs_path + settings.OUTPUT_FILE
   try:
-    with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
+    with open(filename, 'w' if menu.options.flush_session else 'a', encoding=settings.DEFAULT_CODEC) as output_file:
       if not menu.options.no_logging:
-        output_file.write(settings.END_LINE.LF + "=" * 37)
-        output_file.write(settings.END_LINE.LF + "| Started in " + \
-          str(date.today()) + \
-          " at " + datetime.now().strftime("%H:%M:%S") + " |")
-        output_file.write(settings.END_LINE.LF + "=" * 37)
-        output_file.write(settings.END_LINE.LF + re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + "Tested URL : " + url)
+        http_request_method = settings.HTTPMETHOD.POST if menu.options.data else settings.HTTPMETHOD.GET
+        output_file.write("Target: " + url + " (" + http_request_method + ")" + settings.END_LINE.LF)
+        output_file.write("Command: " + " ".join(shlex.quote(_) for _ in sys.argv) + settings.END_LINE.LF)
+        output_file.write("Started: " + str(date.today()) + settings.SINGLE_WHITESPACE + datetime.now().strftime("%H:%M:%S") + settings.END_LINE.LF)
   except IOError as err_msg:
     try:
       error_msg = str(err_msg.args[0]).split("] ")[1] + "."
@@ -136,57 +131,45 @@ def create_log_file(url, output_dir):
   return filename
 
 """
-Add the injection type / technique in log files.
+Append a line to the report - a blank line separates it from a differently grouped one.
 """
-def add_type_and_technique(export_injection_info, filename, injection_type, technique):
-
-  if export_injection_info == False:
-    settings.SHOW_LOGS_MSG = True
+def add_line(filename, text, group=""):
+  if menu.options.no_logging:
+    return
+  try:
     with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-      if not menu.options.no_logging:
-        output_file.write(settings.END_LINE.LF + re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + "Type: " + injection_type.title())
-        output_file.write(settings.END_LINE.LF + re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + "Technique: " + technique.title())
-      export_injection_info = True
-  return export_injection_info
+      if group != settings.LAST_LOG_GROUP:
+        output_file.write(settings.END_LINE.LF)
+        settings.LAST_LOG_GROUP = group
+      output_file.write(text + settings.END_LINE.LF)
+  except:
+    pass
 
 """
-Add the vulnerable parameter in log files.
+Add a confirmed finding in log files, in the same format the console summary prints it.
 """
-def add_parameter(vp_flag, filename, the_type, header_name, http_request_method, vuln_parameter, payload):
-  with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-    if not menu.options.no_logging:
-      if header_name[1:] == settings.COOKIE.lower():
-        header_name = " ("+ header_name[1:] + ") " + vuln_parameter
-      if header_name[1:] == "":
-        header_name = " ("+ http_request_method + ") " + vuln_parameter
-      output_file.write(settings.END_LINE.LF + re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + the_type[1:].title() + ": " + header_name[1:])
-      vp_flag = False
-      output_file.write(settings.END_LINE.LF)
-
-
-"""
-Add any payload in log files.
-"""
-def update_payload(filename, counter, payload):
-  with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-    if not menu.options.no_logging:
-      if settings.END_LINE.LF in payload:
-        output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + "Used payload: " + re.sub("%20", settings.SINGLE_WHITESPACE, _urllib.parse.unquote_plus(payload.replace(settings.END_LINE.LF, settings.END_LINE.ESCAPED_LF))) + settings.END_LINE.LF)
-      else:
-        output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + "Used payload: " + payload.replace("%20", settings.SINGLE_WHITESPACE) + settings.END_LINE.LF)
+def add_finding(filename, injection_type, technique, http_request_method, vuln_parameter, payload, title=None):
+  settings.SHOW_LOGS_MSG = True
+  if not settings.LOGGED_FINDINGS_HEADER:
+    add_line(filename, settings.APPLICATION + " identified the following injection point(s):", group="findings")
+    settings.LOGGED_FINDINGS_HEADER = True
+  parameter = (vuln_parameter, http_request_method)
+  if parameter != settings.LAST_LOGGED_PARAMETER:
+    add_line(filename, checks.finding_parameter_line(vuln_parameter, http_request_method), group="findings")
+    settings.LAST_LOGGED_PARAMETER = parameter
+  else:
+    add_line(filename, "", group="findings")
+  payload = str(checks.url_decode(payload)).replace(settings.END_LINE.LF, settings.END_LINE.ESCAPED_LF)
+  for line in checks.finding_summary_lines(technique, injection_type, payload, title):
+    add_line(filename, settings.strip_ansi_codes(line), group="findings")
 
 """
 Add any executed command and
 execution output result in log files.
 """
 def executed_command(filename, cmd, output):
-  try:
-    with open(filename, 'a', encoding=settings.DEFAULT_CODEC) as output_file:
-      if not menu.options.no_logging:
-        output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_BOLD_SIGN) + "Executed command: " +  cmd + settings.END_LINE.LF)
-        output_file.write(re.compile(re.compile(settings.ANSI_COLOR_REMOVAL)).sub("",settings.INFO_SIGN) + "Execution output: " + str(output.encode(settings.DEFAULT_CODEC).decode()) + settings.END_LINE.LF)
-  except:
-    pass
+  add_line(filename, "Executed command: " + cmd, group="command:" + cmd)
+  add_line(filename, str(output.encode(settings.DEFAULT_CODEC).decode()), group="command:" + cmd)
 
 """
 Fetched data logged to text files.
@@ -201,8 +184,21 @@ def logs_notification(filename):
 Log all HTTP traffic into a textual file.
 """
 def log_traffic(header):
-  with open(menu.options.traffic_file, "a", encoding=settings.DEFAULT_CODEC) as output_file:
-    output_file.write(header)
+  try:
+    with open(menu.options.traffic_file, "a", encoding=settings.DEFAULT_CODEC) as output_file:
+      output_file.write(header)
+  except:
+    pass
+
+"""
+Close the report with the run's totals - only if something was actually logged.
+"""
+def add_footer(filename):
+  if menu.options.no_logging or not settings.LOGGED_FINDINGS_HEADER:
+    return
+  add_line(filename, "Finished: " + str(date.today()) + settings.SINGLE_WHITESPACE + datetime.now().strftime("%H:%M:%S") +
+                     "   Requests: " + str(settings.TOTAL_OF_REQUESTS) +
+                     "   Target OS: " + settings.TARGET_OS.title(), group="footer")
 
 """
 Print logs notification.
@@ -210,6 +206,7 @@ Print logs notification.
 def print_logs_notification(filename, url):
   if os.path.exists(settings.CLI_HISTORY):
     checks.save_cmd_history()
+  add_footer(filename)
   if settings.SHOW_LOGS_MSG == True and not menu.options.no_logging:
     if not settings.LOAD_SESSION:
       logs_notification(filename)

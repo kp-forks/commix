@@ -13,7 +13,6 @@ the Free Software Foundation, either version 3 of the License, or
 For more see the file 'readme/COPYING' for copying permission.
 """
 
-import re
 from src.utils import settings
 from src.core.injections.controller import checks
 
@@ -33,12 +32,6 @@ if not settings.TAMPER_SCRIPTS[__tamper__]:
   settings.TAMPER_SCRIPTS[__tamper__] = True
 
 def tamper(payload):
-  def add_single_quotes(payload):
-    payload = re.sub(settings.TAMPER_MODIFICATION_LETTERS, lambda x: obf_char + x[0], payload)
-    return checks.tamper_restore_ignored_words(payload, obf_char)
-  if settings.TARGET_OS != settings.OS.WINDOWS:
-    return add_single_quotes(payload)
-  else:
-    return payload
+  return checks.interleave_char_tamper(payload, obf_char)
 
 # eof

@@ -40,10 +40,14 @@ def tamper(payload):
       rep = {
               "^^": "^",
               '"^t""^o""^k""^e""^n""^s"': '"t"^"o"^"k"^"e"^"n"^"s"',
+              # "tokens" always appears quoted (e.g. "tokens=*") in this project's own for/f payloads -
+              # the leading quote must be consumed here too, or it leaks through as a stray "".
+              '"^t^o^k^e^n^s': '"t"^"o"^"k"^"e"^"n"^"s"',
               '^t^o^k^e^n^s': '"t"^"o"^"k"^"e"^"n"^"s"',
-              re.sub(settings.TAMPER_MODIFICATION_LETTERS, r'^\1', long_string) : long_string.replace("^", "")
             }
-      payload = re.sub(settings.TAMPER_MODIFICATION_LETTERS, r'^\1', payload)
+      if long_string:
+        rep[re.sub(settings.TAMPER_MODIFICATION_LETTERS, r'^\1', long_string)] = long_string.replace("^", "")
+      payload = checks.tamper_modify_letters_outside_quotes(payload, r'^\1')
       rep = dict((re.escape(k), v) for k, v in rep.items())
       pattern = re.compile("|".join(rep.keys()))
       payload = pattern.sub(lambda m: rep[re.escape(m.group(0))], payload)

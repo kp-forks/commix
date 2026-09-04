@@ -38,8 +38,10 @@ def tamper(payload):
       payload = re.sub(settings.TAMPER_MODIFICATION_LETTERS, r'""\1', payload)
     else:
       word = "tokens"
+      quoted = '"' + obf_char.join(word)
+      payload = payload.replace('"' + word, quoted)
       _ = obf_char.join(word[i:i+1] for i in range(-1, len(word), 1))
-      payload = payload.replace(word,_)
+      payload = payload.replace(word, _)
     return checks.tamper_restore_ignored_words(payload, obf_char)
   return add_double_quotes(payload)
 

@@ -18,7 +18,6 @@ import os
 import sys
 import json
 import time
-import base64
 import hashlib
 import traceback
 from src.utils import menu
@@ -42,18 +41,38 @@ def invalid_option(option):
   settings.print_data_to_stdout(settings.print_error_msg(err_msg))
 
 """
+Prompt Y/N/quit and store the boolean choice into the given settings attribute.
+"""
+def prompt_yes_no_setting(message, setting_name, default="N"):
+  while True:
+    choice = read_input(message, default=default, check_batch=True)
+    if choice in settings.CHOICE_YES:
+      setattr(settings, setting_name, True)
+      return
+    elif choice in settings.CHOICE_NO:
+      setattr(settings, setting_name, False)
+      return
+    elif choice in settings.CHOICE_QUIT:
+      raise SystemExit()
+    else:
+      invalid_option(choice)
+
+"""
 Reads input from terminal safely
 """
 def safe_input(message):
   try:
-    value = _input(message)
-  except UnicodeDecodeError as e:
-    value = _input(message.encode("utf-8", "ignore").decode("utf-8"))
-  except EOFError:
-    raise
-  except Exception as err_msg:
-    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
-    return ""
+    try:
+      value = _input(message)
+    except UnicodeDecodeError:
+      value = _input(message.encode("utf-8", "ignore").decode("utf-8"))
+    except EOFError:
+      raise
+    except Exception as err_msg:
+      settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+      return ""
+  finally:
+    settings.reset_terminal_style()
   # Enter starts a fresh line, bypassing print_data_to_stdout's tracking.
   settings.PROGRESS_LINE_OPEN = False
   return value
@@ -66,7 +85,7 @@ def read_input(message, default=None, check_batch=True):
   if message:
     settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
   def is_empty():
-    value = safe_input(settings.print_message(message))
+    value = safe_input(settings.input_message(message))
     if len(value) == 0:
       return default
     else:
@@ -99,14 +118,11 @@ def read_input(message, default=None, check_batch=True):
     elif value is None:
       if check_batch and menu.options.batch:
         settings.print_data_to_stdout(settings.print_message(message + str(default)))
-        if settings.VERBOSITY_LEVEL != 0:
-          debug_msg = "Used the default behavior, running in batch mode."
-          settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
         return default
       else:
         return is_empty()
   except KeyboardInterrupt:
-    settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
+    settings.clear_current_line()
     raise
 
 """
@@ -322,7 +338,7 @@ def unhandled_exception():
     raise SystemExit()
 
   elif "database disk image is malformed" in exc_msg:
-    exc_msg = "Local session file seems to be malformed. Please rerun with '--flush-session'."
+    err_msg = "Local session file seems to be malformed. Please re-run with '--flush-session'."
     settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
     raise SystemExit()
 

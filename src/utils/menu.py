@@ -19,8 +19,7 @@ from src.utils import settings
 from optparse import OptionGroup
 from optparse import OptionParser
 from optparse import SUPPRESS_HELP as SUPPRESS
-from src.thirdparty.six.moves import input as _input
-from src.thirdparty.colorama import Fore, Back, Style, init
+from src.thirdparty.colorama import Fore, Style, init
 
 # Use Colorama to make Termcolor work on Windows too :)
 if settings.IS_WINDOWS:
@@ -37,10 +36,8 @@ def banner():
 \ \____\ \____/\ \_\ \_\ \_\ \_\ \_\ \_\ \_\/\_/\_\ """ + Fore.GREY + Style.UNDERLINE + settings.APPLICATION_URL + Style.RESET_ALL + r"""
  \/____/\/___/  \/_/\/_/\/_/\/_/\/_/\/_/\/_/\//\/_/ (""" + Fore.LIGHTRED_EX + settings.APPLICATION_X_ACCOUNT + Style.RESET_ALL + """)
 
-+--
 """ + Style.BRIGHT + settings.DESCRIPTION_FULL + Style.RESET_ALL + """
 Copyright © """ + settings.YEAR + """ """ + settings.AUTHOR + Style.RESET_ALL + """ (""" + Fore.LIGHTRED_EX  + settings.AUTHOR_X_ACCOUNT + Style.RESET_ALL + """)
-+--
 """)
 
 _ = os.path.normpath(sys.argv[0])
@@ -698,6 +695,10 @@ option.help = option.help.capitalize().replace("Show this help message and exit"
 # Remember whether '--web-root' was explicitly supplied on the CLI
 settings.USER_APPLIED_WEB_ROOT = bool(options.web_root)
 
+# Remember whether '--auth-cred'/'--auth-type' were explicitly supplied on the CLI
+settings.USER_APPLIED_AUTH_CRED = bool(options.auth_cred)
+settings.USER_APPLIED_AUTH_TYPE = bool(options.auth_type)
+
 # Apply '--ignore-redirects' before the very first request is made
 settings.FOLLOW_REDIRECT = not options.ignore_redirects
 
@@ -715,20 +716,27 @@ COMMON_OPTIONS = (
 )
 
 OS_SHELL_OPTIONS = COMMON_OPTIONS + (
-    (("reverse_tcp",), "configure a reverse TCP shell"),
-    (("bind_tcp",), "configure a bind TCP shell"),
+    (("<command>",), "execute it as an OS command on the target host"),
+    (("use reverse_tcp",), "Switch to the reverse TCP mode"),
+    (("use bind_tcp",), "Switch to the bind TCP mode"),
 )
 
 REVERSE_TCP_OPTIONS = COMMON_OPTIONS + (
+    (("set payload",), "Select a reverse TCP payload"),
     (("set",), "set a context option"),
-    (("os_shell",), "return to the OS shell"),
-    (("bind_tcp",), "switch to the bind TCP shell"),
+    (("show options",), "show the current context options"),
+    (("run",), "Generate and send the selected payload"),
+    (("use os_shell",), "Switch to the (default) OS shell mode"),
+    (("use bind_tcp",), "Switch to the bind TCP mode"),
 )
 
 BIND_TCP_OPTIONS = COMMON_OPTIONS + (
+    (("set payload",), "Select a bind TCP payload"),
     (("set",), "set a context option"),
-    (("os_shell",), "return to the OS shell"),
-    (("reverse_tcp",), "switch to the reverse TCP shell"),
+    (("show options",), "show the current context options"),
+    (("run",), "Generate and send the selected payload"),
+    (("use os_shell",), "Switch to the (default) OS shell mode"),
+    (("use reverse_tcp",), "Switch to the reverse TCP mode"),
 )
 
 
@@ -747,32 +755,86 @@ MOBILE_USER_AGENTS = (
 )
 
 
+"""
+Render a command reference table, msfconsole-style: a title/underline, then an
+aligned "Command  Description" table.
+"""
 def _print_options(context, options):
+    title = "Available Commands"
+
+    rows = [
+        (", ".join(commands), description[0].upper() + description[1:])
+        for commands, description in options
+    ]
+
+    command_width = max(len("Command"), max(len(command) for command, _ in rows))
+
     message = (
-        Style.BRIGHT
-        + "Available '"
-        + context
-        + "' options:"
-        + Style.RESET_ALL
-        + "\n"
+        title + "\n"
+        + "=" * len(title) + "\n\n"
+        + "    " + "Command".ljust(command_width) + "   Description\n"
+        + "    " + ("-" * len("Command")).ljust(command_width) + "   " + "-" * len("Description") + "\n"
     )
 
-    for commands, description in options:
-        command = " / ".join(
-            "'" + Style.BRIGHT + cmd + Style.RESET_ALL + "'"
-            for cmd in commands
-        )
-
+    for command, description in rows:
         message += (
-            settings.SUB_CONTENT_SIGN_TYPE
-            + "Type "
-            + command
-            + " to "
-            + description
-            + ".\n"
+            "    "
+            + command.ljust(command_width)
+            + "   " + description + "\n"
         )
 
-    settings.print_data_to_stdout(message.rstrip())
+    settings.print_data_to_stdout(message.rstrip() + "\n")
+
+"""
+Render a Name/Description table, msfconsole-style (like a "show" listing).
+"""
+def print_module_table(title, items):
+    name_width = max(len("Name"), max(len(name) for name, _ in items))
+
+    message = (
+        title + "\n"
+        + "=" * len(title) + "\n\n"
+        + "    " + "Name".ljust(name_width) + "   Description\n"
+        + "    " + ("-" * len("Name")).ljust(name_width) + "   " + "-" * len("Description") + "\n"
+    )
+
+    for name, description in items:
+        message += (
+            "    "
+            + name.ljust(name_width)
+            + "   " + description[0].upper() + description[1:] + "\n"
+        )
+
+    settings.print_data_to_stdout(message.rstrip() + "\n")
+
+"""
+Render a "show options"-style table: Name / Current Setting / Required / Description.
+"""
+def print_options_table(title, rows):
+    name_width = max(len("Name"), max(len(name) for name, _, _, _ in rows))
+    current_width = max(len("Current Setting"), max(len(current) for _, current, _, _ in rows))
+    required_width = len("Required")
+
+    def render_row(name, current, required, description):
+        return (
+            "    "
+            + name.ljust(name_width) + "   "
+            + current.ljust(current_width) + "   "
+            + required.ljust(required_width) + "   "
+            + description + "\n"
+        )
+
+    message = (
+        title + "\n"
+        + "=" * len(title) + "\n\n"
+        + render_row("Name", "Current Setting", "Required", "Description")
+        + render_row("-" * len("Name"), "-" * len("Current Setting"), "-" * len("Required"), "-" * len("Description"))
+    )
+
+    for name, current, required, description in rows:
+        message += render_row(name, current if current else "", "yes" if required else "no", description)
+
+    settings.print_data_to_stdout(message.rstrip() + "\n")
 
 
 def _print_mobile_user_agents():
@@ -785,8 +847,7 @@ def _print_mobile_user_agents():
 
     for option, device in MOBILE_USER_AGENTS:
         message += (
-            settings.SUB_CONTENT_SIGN_TYPE
-            + "Type '"
+            "Type '"
             + Style.BRIGHT
             + option
             + Style.RESET_ALL
@@ -817,9 +878,50 @@ def mobile_user_agents():
 The tab compliter (shell options).
 """
 def tab_completer(text, state):
-    set_options = [option.upper() for option in settings.SET_OPTIONS if option.startswith(text.upper())]
-    shell_options = [option for option in settings.SHELL_OPTIONS if option.startswith(text.lower())]
-    available_options = shell_options + set_options
+    try:
+        import readline
+        line = readline.get_line_buffer().lstrip().lower()
+    except Exception:
+        line = ""
+
+    # Right after "set payload ", complete the currently-active shell's module paths
+    # (accepts both the bare name and the "bind_tcp/"/"reverse_tcp/"-prefixed form).
+    if line.startswith("set payload "):
+        module_paths = []
+        try:
+            if settings.BIND_TCP:
+                from src.core.shells.bind_tcp import BIND_TCP_MODULES
+                module_paths = list(BIND_TCP_MODULES.keys())
+            elif settings.REVERSE_TCP:
+                from src.core.shells.reverse_tcp import REVERSE_TCP_MODULES
+                module_paths = list(REVERSE_TCP_MODULES.keys())
+        except Exception:
+            module_paths = []
+
+        prefix, bare_text = "", text
+        for mode_prefix in ("bind_tcp/", "reverse_tcp/"):
+            if text.startswith(mode_prefix):
+                prefix, bare_text = mode_prefix, text[len(mode_prefix):]
+                break
+
+        available_options = [prefix + path for path in module_paths if path.startswith(bare_text)]
+
+    # Right after "set ", the option names make sense, plus "payload" - not the full command list.
+    elif line.startswith("set "):
+        available_options = [option.upper() for option in settings.SET_OPTIONS if option.upper().startswith(text.upper())]
+        if "payload".startswith(text.lower()):
+            available_options.append("payload")
+
+    # Right after "use ", complete "os_shell"/"bind_tcp"/"reverse_tcp".
+    elif line.startswith("use "):
+        use_targets = ["os_shell", "bind_tcp", "reverse_tcp"]
+        available_options = [target for target in use_targets if target.startswith(text.lower())]
+
+    else:
+        set_options = [option.upper() for option in settings.SET_OPTIONS if option.startswith(text.upper())]
+        shell_options = [option for option in settings.SHELL_OPTIONS if option.startswith(text.lower())]
+        available_options = shell_options + set_options
+
     try:
       return available_options[state]
     except IndexError:

@@ -39,27 +39,19 @@ if not settings.TAMPER_SCRIPTS[__tamper__]:
 
 def tamper(payload):
   def add_uninitialized_variable(payload):
-    # Safety check for incompatible scripts
-    if settings.TAMPER_SCRIPTS.get("backslashes") or settings.TAMPER_SCRIPTS.get("dollaratsigns"):
-      err_msg = "Tamper script '" + __tamper__ + "' is unlikely to work in combination with "
-      err_msg += "the tamper scripts 'backslashes' and/or 'dollaratsigns'."
+    def obfuscate(text):
+      # Split into parts: already obfuscated (${XX}) and plain
+      parts = re.split(r'(\$\{[A-Z]+\})', text)
+      for i in range(len(parts)):
+        if not re.match(r'\$\{[A-Z]+\}', parts[i]):
+          parts[i] = re.sub(
+            settings.TAMPER_MODIFICATION_LETTERS,
+            lambda x: obf_char + x.group(0),
+            parts[i]
+          )
+      return ''.join(parts)
 
-      settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
-      raise SystemExit()
-
-    # Split payload into parts: obfuscated (${XX}) and plain
-    parts = re.split(r'(\$\{[A-Z]+\})', payload)
-
-    # Apply obfuscation only on plain parts
-    for i in range(len(parts)):
-      if not re.match(r'\$\{[A-Z]+\}', parts[i]):
-        parts[i] = re.sub(
-          settings.TAMPER_MODIFICATION_LETTERS,
-          lambda x: obf_char + x.group(0),
-          parts[i]
-        )
-
-    payload = ''.join(parts)
+    payload = checks.tamper_outside_single_quotes(payload, obfuscate)
     return checks.tamper_restore_ignored_words(payload, obf_char)
 
   # Only apply on non-Windows targets

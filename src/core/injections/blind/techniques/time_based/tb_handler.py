@@ -15,7 +15,6 @@ For more see the file 'readme/COPYING' for copying permission.
 
 from src.utils import common
 from src.utils import settings
-from src.core.injections.controller import checks
 from src.core.injections.controller import handler
 
 """
@@ -26,7 +25,7 @@ The "time-based" injection technique on Blind OS Command Injection.
 The "time-based" injection technique handler.
 """
 def tb_injection_handler(url, timesec, filename, http_request_method, url_time_response, injection_type, technique, tmp_path):
-  return handler.do_time_related_proccess(url, timesec, filename, http_request_method, url_time_response, injection_type, technique, tmp_path)
+  return handler.do_time_related_process(url, timesec, filename, http_request_method, url_time_response, injection_type, technique, tmp_path)
 
 """
 The exploitation function.

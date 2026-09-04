@@ -13,23 +13,15 @@ the Free Software Foundation, either version 3 of the License, or
 For more see the file 'readme/COPYING' for copying permission.
 """
 import re
-import sys
 import random
-import socket
 import string
 import tempfile
 from src.utils import menu
 from src.utils import settings
 from src.utils import common
 from src.core.injections.controller import checks
-from src.core.requests import headers
 from src.core.requests import requests
-from src.core.requests import proxy
-from src.core.requests import redirection
-from src.thirdparty.six.moves import http_client as _http_client
-from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.colorama import Fore, Back, Style, init
 from src.thirdparty.beautifulsoup.beautifulsoup import BeautifulSoup
 
 
@@ -223,7 +215,6 @@ def random_fill_blank_fields(data):
     field_name = item[:-1]
     new_value = str(random.randint(1, 9999)) if re.search(r"(?i)id", field_name) else \
       ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(6))
-    # group(1) is the leading '&' (or '' for the start-of-string case) - keep it, only the value is new.
     return match.group(1) + item + new_value
   return re.sub(settings.EMPTY_FORM_FIELDS_REGEX, replacement, data)
 
@@ -268,21 +259,9 @@ def enable_crawler():
 Check for the existence of site's sitemap
 """
 def check_sitemap():
-  while True:
-    message = "Do you want to check target"+ ('', 's')[settings.MULTI_TARGETS] + " for "
-    message += "the existence of site's sitemap(.xml)? [y/N] "
-    message = common.read_input(message, default="N", check_batch=True)
-    if message in settings.CHOICE_YES:
-      settings.SITEMAP_CHECK = True
-      return
-    elif message in settings.CHOICE_NO:
-      settings.SITEMAP_CHECK = False
-      return
-    elif message in settings.CHOICE_QUIT:
-      raise SystemExit()
-    else:
-      common.invalid_option(message)
-      pass
+  message = "Do you want to check target"+ ('', 's')[settings.MULTI_TARGETS] + " for "
+  message += "the existence of site's sitemap(.xml)? [y/N] "
+  common.prompt_yes_no_setting(message, "SITEMAP_CHECK", default="N")
 
 """
 Check if no usable links found.
@@ -355,7 +334,7 @@ def do_process(url, http_request_method):
       return list(crawled_hrefs)
     return list("")
 
-  except Exception as e:  # for non-HTML files and non-valid links
+  except Exception:  # for non-HTML files and non-valid links
     pass
 
 

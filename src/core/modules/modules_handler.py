@@ -13,26 +13,30 @@ the Free Software Foundation, either version 3 of the License, or
 For more see the file 'readme/COPYING' for copying permission.
 """
 
-import os
-import sys
-
 from src.utils import menu
 from src.utils import settings
-from src.thirdparty.colorama import Fore, Back, Style, init
+
+"""
+A module should reuse the shared core building blocks (requests/checks/shell_options/handler) instead of reimplementing them - see shellshock.py as the reference implementation.
+"""
+
+"""
+Registered modules: CLI flag name (matching the menu.options attribute) -> (import path, handler).
+"""
+MODULES = {
+  "shellshock": ("src.core.modules.shellshock.shellshock", "shellshock_handler"),
+}
 
 """
 Load modules
 """
 def load_modules(url, http_request_method, filename):
-
-  # Check if defined the shellshock module
-  if menu.options.shellshock :
-    try:
-      # The shellshock module
-      from src.core.modules.shellshock import shellshock
-      # The shellshock handler
-      shellshock.shellshock_handler(url, http_request_method, filename)
-    except ImportError as err_msg:
-      settings.print_data_to_stdout(settings.END_LINE.LF + settings.print_critical_msg(err_msg))
+  for name, (module_path, handler_name) in MODULES.items():
+    if getattr(menu.options, name, False):
+      try:
+        module = __import__(module_path, fromlist=[handler_name])
+        getattr(module, handler_name)(url, http_request_method, filename)
+      except ImportError as err_msg:
+        settings.print_data_to_stdout(settings.END_LINE.LF + settings.print_critical_msg(err_msg))
+        raise SystemExit()
       raise SystemExit()
-    raise SystemExit()

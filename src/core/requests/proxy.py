@@ -13,17 +13,11 @@ the Free Software Foundation, either version 3 of the License, or
 For more see the file 'readme/COPYING' for copying permission.
 """
 
-import sys
-import socket
 from src.utils import menu
 from src.utils import settings
-from src.core.requests import headers
 from src.core.requests import requests
 from src.core.requests import redirection
-from src.core.injections.controller import checks
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.colorama import Fore, Back, Style, init
-from src.thirdparty.six.moves import http_client as _http_client
 
 """
 Use the defined HTTP Proxy

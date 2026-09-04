@@ -14,8 +14,8 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 from src.utils import settings
-from src.core.injections.controller import checks
 from src.core.injections.controller import handler
+from src.core.injections.controller import checks
 
 """
 The "tempfile-based" injection technique on semiblind OS command injection.
@@ -26,7 +26,7 @@ __Warning:__ This technique is still experimental, is not yet fully functional a
 The "tempfile-based" injection technique handler
 """
 def tfb_injection_handler(url, timesec, filename, http_request_method, url_time_response, injection_type, technique, tmp_path):
-  return handler.do_time_related_proccess(url, timesec, filename, http_request_method, url_time_response, injection_type, technique, tmp_path)
+  return handler.do_time_related_process(url, timesec, filename, http_request_method, url_time_response, injection_type, technique, tmp_path)
 
 """
 The exploitation function.
@@ -40,6 +40,7 @@ def exploitation(url, timesec, filename, tmp_path, http_request_method, url_time
 
   injection_type = settings.INJECTION_TYPE.SEMI_BLIND
   technique = settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED
+  settings.BASELINE_TARGET = (url, http_request_method)
 
   if tfb_injection_handler(url, timesec, filename, http_request_method, url_time_response, injection_type, technique, tmp_path) == False:
     settings.TIME_RELATED_ATTACK = settings.TEMPFILE_BASED_STATE = False

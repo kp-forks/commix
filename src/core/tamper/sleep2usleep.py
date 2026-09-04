@@ -34,7 +34,11 @@ if not settings.TAMPER_SCRIPTS[__tamper__]:
 
 def tamper(payload):
   def sleep_to_usleep(payload):
-    for match in re.finditer(r"sleep" + settings.WHITESPACES[0] + r"([1-9]\d+|[0-9])", payload):
+    whitespace = settings.WHITESPACES[0]
+    # Arithmetic-gated delay ("sleep $((5*(cond)))") - scale its leading factor to microseconds.
+    payload = re.sub(r"sleep" + re.escape(whitespace) + r"\$\(\((\d+)\*",
+                     lambda x: "usleep" + whitespace + "$((" + x.group(1) + "000000*", payload)
+    for match in re.finditer(r"sleep" + re.escape(whitespace) + r"([1-9]\d+|[0-9])", payload):
       sleep_to_usleep = "u" + match.group(0).split(settings.WHITESPACES[0])[0]
       if match.group(0).split(settings.WHITESPACES[0])[1] != "0":
         usleep_delay = match.group(0).split(settings.WHITESPACES[0])[1] + "0" * 6

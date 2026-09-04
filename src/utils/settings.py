@@ -61,12 +61,6 @@ class HTTPMETHOD(object):
   POST = "POST"
   HEAD = "HEAD"
 
-# Status
-FAIL_MSG = Fore.RED + " " * 10 + Style.RESET_ALL
-FAIL_STATUS = "" + FAIL_MSG + ""
-info_msg = Fore.GREEN + " " * 10 + Style.RESET_ALL
-SUCCESS_STATUS = "" + info_msg + ""
-
 # Status Signs
 LEGAL_DISCLAIMER = "(" + Style.BRIGHT + Fore.RED + "!" + Style.RESET_ALL + ") " + "Legal disclaimer: "
 INFO_SIGN = Style.RESET_ALL + "[" + Fore.GREEN + "info" + Style.RESET_ALL + "] "
@@ -82,20 +76,33 @@ ERROR_SIGN = "[" + Fore.RED + "error" + Style.RESET_ALL  + "] "
 ERROR_BOLD_SIGN = "["  + Style.BRIGHT + Fore.RED + "error" + Style.RESET_ALL  + "] "
 CRITICAL_SIGN = "[" + Back.RED + "critical" + Style.RESET_ALL  + "] "
 PAYLOAD_SIGN = "[" + Fore.CYAN + "payload" + Style.RESET_ALL + "] "
-SUB_CONTENT_SIGN = " " * 11 + Fore.GREY + "|_ " + Style.RESET_ALL
-SUB_CONTENT_SIGN_TYPE = Fore.LIGHTRED_EX + " * " + Style.RESET_ALL
+SUB_CONTENT_SIGN = ""
+SUB_CONTENT_SIGN_TYPE = "" + Style.BRIGHT + "*" + Style.RESET_ALL + " "
+#SUB_CONTENT_SIGN_TYPE = "[" + Fore.LIGHTRED_EX + "*" + Style.RESET_ALL + "] "
 TRAFFIC_SIGN = HTTP_CONTENT_SIGN = ""
 ABORTION_SIGN = ERROR_SIGN
 DEBUG_SIGN = "[" + Back.BLUE + Fore.WHITE + "debug" + Style.RESET_ALL + "] "
 DEBUG_BOLD_SIGN = "[" + Back.BLUE + Style.BRIGHT + Fore.WHITE + "debug" + Style.RESET_ALL + "] " + Style.BRIGHT
 CHECK_SIGN = DEBUG_SIGN + "Checking for a valid pair of authentication credentials: "
-OS_SHELL_TITLE = Style.BRIGHT + "Operating System Pseudo-Shell (type '?' for available options)" + Style.RESET_ALL
-OS_SHELL = """commix(""" + Style.BRIGHT + Fore.RED + """os_shell""" + Style.RESET_ALL + """) > """
-REVERSE_TCP_SHELL = """commix(""" + Style.BRIGHT + Fore.RED + """reverse_tcp""" + Style.RESET_ALL + """) > """
-BIND_TCP_SHELL = """commix(""" + Style.BRIGHT + Fore.RED + """bind_tcp""" + Style.RESET_ALL + """) > """
+OS_SHELL_TITLE = Style.BRIGHT + "Command Shell (type '?' for help)" + Style.RESET_ALL
+
+RL_INVISIBLE_START = "\001"
+RL_INVISIBLE_END = "\002"
+
+def styled_prompt(codes, text):
+  return RL_INVISIBLE_START + codes + RL_INVISIBLE_END + text
+
+OS_SHELL = "commix(os_shell) > "
 
 def print_time():
   return "[" + Fore.LIGHTBLUE_EX  + datetime.now().strftime("%H:%M:%S") + Style.RESET_ALL + "] "
+
+"""
+Shared tail for the timestamped print_*_msg wrappers below.
+"""
+def _format_msg(sign, msg, bold=False):
+  prefix = Style.BRIGHT if bold else ""
+  return print_time() + sign + prefix + str(msg) + Style.RESET_ALL
 
 # Print execution status
 def execution(status):
@@ -109,28 +116,23 @@ def print_legal_disclaimer_msg(legal_disclaimer_msg):
 
 # Print error message
 def print_error_msg(err_msg):
-  result = print_time() + ERROR_SIGN + str(err_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(ERROR_SIGN, err_msg)
 
 # Print error message
 def print_bold_error_msg(err_msg):
-  result = print_time() + ERROR_BOLD_SIGN + Style.BRIGHT + str(err_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(ERROR_BOLD_SIGN, err_msg, bold=True)
 
 # Print critical error message
 def print_critical_msg(err_msg):
-  result = print_time() + CRITICAL_SIGN + str(err_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(CRITICAL_SIGN, err_msg)
 
 # Print abortion message
 def print_abort_msg(abort_msg):
-  result = print_time() + ABORTION_SIGN + str(abort_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(ABORTION_SIGN, abort_msg)
 
 # Print warning message
 def print_warning_msg(warn_msg):
-  result = print_time() + WARNING_SIGN + str(warn_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(WARNING_SIGN, warn_msg)
 
 _PRINTED_ONCE_MESSAGES = set()
 
@@ -144,43 +146,35 @@ def print_once(raw_msg):
 
 # Print warning message
 def print_bold_warning_msg(warn_msg):
-  result = print_time() +  WARNING_BOLD_SIGN + str(warn_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(WARNING_BOLD_SIGN, warn_msg)
 
 # Print debug message (verbose mode)
 def print_debug_msg(debug_msg):
-  result = print_time() + DEBUG_SIGN + debug_msg + Style.RESET_ALL
-  return result
+  return _format_msg(DEBUG_SIGN, debug_msg)
 
 # Print bold debug message (verbose mode)
 def print_bold_debug_msg(debug_msg):
-  result = print_time() + DEBUG_BOLD_SIGN + debug_msg + Style.RESET_ALL
-  return result
+  return _format_msg(DEBUG_BOLD_SIGN, debug_msg)
 
 # Print request HTTP message
 def print_request_msg(req_msg):
-  result = print_time() + REQUEST_SIGN + str(req_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(REQUEST_SIGN, req_msg)
 
 # Print response HTTP message
 def print_response_msg(resp_msg):
-  result = print_time() + RESPONSE_SIGN + str(resp_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(RESPONSE_SIGN, resp_msg)
 
 # Print information message
 def print_info_msg(info_msg):
-  result = print_time() + INFO_SIGN + str(info_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(INFO_SIGN, info_msg)
 
 # Print bold information message
 def print_bold_info_msg(info_msg):
-  result =  print_time() + INFO_BOLD_SIGN + Style.BRIGHT + str(info_msg) + Style.RESET_ALL
-  return result
+  return _format_msg(INFO_BOLD_SIGN, info_msg, bold=True)
 
 # Print payload (verbose mode)
 def print_payload(payload):
-  result = print_time() + PAYLOAD_SIGN + str(payload) + Style.RESET_ALL
-  return result
+  return _format_msg(PAYLOAD_SIGN, payload)
 
 # Print HTTP traffic (verbose mode)
 def print_traffic(traffic):
@@ -198,18 +192,25 @@ def print_http_response_content(content):
 
 # Print checking message (verbose mode)
 def print_checking_msg(payload):
-  result = print_time() + CHECK_SIGN + str(payload) + Style.RESET_ALL
-  return result
+  return _format_msg(CHECK_SIGN, payload)
 
 # Print question message
 def print_message(message):
   result = QUESTION_SIGN + message + Style.RESET_ALL
   return result
 
-# Print sub content message
-def print_sub_content(sub_content):
-  result = SUB_CONTENT_SIGN + sub_content + Style.RESET_ALL
-  return result
+"""
+Bold version of a message for use as an input() prompt.
+"""
+def input_message(message):
+  return styled_prompt(Style.BRIGHT, message)
+
+"""
+Clears any style an input() prompt (via styled_prompt()) left switched on.
+"""
+def reset_terminal_style():
+  _stdout_write(Style.RESET_ALL)
+  sys.stdout.flush()
 
 # Print sub content message
 def print_retrieved_data(cmd, retrieved):
@@ -236,6 +237,8 @@ Print data to stdout
 """
 def print_data_to_stdout(data):
   global PROGRESS_LINE_OPEN
+  if getattr(_threading.current_thread(), "commix_suppress_output", False):
+    return
   with PRINT_LOCK:
     # A bare "\r" only moves the cursor and does not open a line.
     if data == END_LINE.CR:
@@ -269,7 +272,10 @@ Clear the current line before printing, without adding a blank line when already
 def clear_current_line():
   global PROGRESS_LINE_OPEN
   with PRINT_LOCK:
-    sys.stdout.write(END_LINE.CR + "\033[K")
+    if PROGRESS_LINE_OPEN:
+      sys.stdout.write(END_LINE.LF)
+    else:
+      sys.stdout.write(END_LINE.CR + "\033[K")
     sys.stdout.flush()
     PROGRESS_LINE_OPEN = False
 
@@ -322,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "105"
+REVISION = "106"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -347,8 +353,8 @@ LEGAL_DISCLAIMER_MSG = "Usage of " + APPLICATION + " for attacking targets witho
 
 # Random string generator
 RANDOM_STRING_GENERATOR = ''.join(random.choice(string.ascii_uppercase + string.digits + string.ascii_lowercase) for _ in range(10))
-# Random variable name
-RANDOM_VAR_GENERATOR = ''.join(random.choice(string.ascii_uppercase) for _ in range(3))
+# Random variable name (E-Z only).
+RANDOM_VAR_GENERATOR = ''.join(random.choice(string.ascii_uppercase[4:]) for _ in range(3))
 
 # Path to text resources folder
 TXT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'txt'))
@@ -465,7 +471,7 @@ ASTERISK_MARKER = "__ASTERISK__"
 CUSTOM_INJECTION_MARKER_PARAMETERS_LIST = []
 PRE_CUSTOM_INJECTION_MARKER_CHAR = ""
 POST_CUSTOM_INJECTION_MARKER_CHAR = ""
-# Benign patterns that legitimately contain '*' (e.g. 'Accept: */*') - excluded from marker detection.
+# Patterns that legitimately contain '*' (e.g. 'Accept: */*').
 PROBLEMATIC_CUSTOM_INJECTION_PATTERNS = r"(;q=[^;'*]+)|(\*/\*)"
 
 class INJECTION_MARKER_LOCATION(object):
@@ -478,6 +484,7 @@ class INJECTION_MARKER_LOCATION(object):
 SKIP_NON_CUSTOM_PARAMS = None
 
 TESTABLE_PARAMETERS_LIST = []
+SKIP_PARAMETERS_LIST = []
 TESTABLE_PARAMETERS = None
 NOT_TESTABLE_PARAMETERS = True
 TESTED_PARAMETERS_LIST = []
@@ -513,6 +520,9 @@ EVAL_BASED_STATE = False
 TIME_BASED_STATE = False
 FILE_BASED_STATE = False
 TEMPFILE_BASED_STATE = False
+
+# The technique currently being announced/tested.
+CURRENT_TECHNIQUE = None
 TIME_RELATED_ATTACK = False
 TIME_RELATED_ATTACK_WARNING = False
 LAST_COMPLETED_TECHNIQUE = None
@@ -543,7 +553,7 @@ OUTPUT_FILE_NAME = "logs"
 OUTPUT_FILE_EXT = ".txt"
 OUTPUT_FILE = OUTPUT_FILE_NAME + OUTPUT_FILE_EXT
 
-# Max Length for command execution output.
+# Max Length for execution output.
 MAXLEN = 10000
 
 STDIN_PARSING = False
@@ -551,13 +561,15 @@ STDIN_PARSING = False
 # Slow target response.
 SLOW_TARGET_RESPONSE = 3
 
-# Number of samples estimate_response_time() takes the median of, before gating the "slow target" decision.
+# Number of samples estimate_response_time() takes the median of.
 RESPONSE_TIME_SAMPLES = 3
 
-# Pre-injection baseline (estimate_response_time()) - the target's own
-# round-trip time before any delay logic runs. Floors the initial --time-sec
-# calibration so a target this slow doesn't get a delay smaller than its own latency.
+# Pre-injection baseline - the target's own round-trip time before any delay logic runs.
 URL_TIME_RESPONSE = 0
+# (url, http_request_method) the response-time baseline is sampled from, filled in on first use.
+BASELINE_TARGET = None
+# Last reported minimum safe delay, so the same floor is announced only once.
+REPORTED_MIN_SAFE_TIMESEC = None
 
 # Cache url_response()'s connection-test timing for reuse by estimate_response_time().
 INIT_CONNECTION_TIME = None
@@ -699,8 +711,16 @@ CUSTOM_FILENAME = ""
 # Whether '--web-root' was explicitly supplied on the CLI
 USER_APPLIED_WEB_ROOT = False
 
+# Whether '--auth-cred'/'--auth-type' were explicitly supplied on the CLI
+USER_APPLIED_AUTH_CRED = False
+USER_APPLIED_AUTH_TYPE = False
+
 # Counting the total of HTTP(S) requests
 TOTAL_OF_REQUESTS = 0
+# Log-file report state.
+LOGGED_FINDINGS_HEADER = False
+LAST_LOGGED_PARAMETER = None
+LAST_LOG_GROUP = "header"
 
 # The max help option length.
 MAX_OPTION_LENGTH = 18
@@ -740,7 +760,8 @@ WIN_RECOGNISE_HP = "echo %PROCESSOR_ARCHITECTURE%"
 # File System access options
 # Read file
 FILE_READ = "cat "
-FILE_WRITE_OPERATOR = " > "
+FILE_WRITE_OPERATOR = " >"
+FILE_APPEND_OPERATOR = " >>"
 WIN_FILE_WRITE_OPERATOR = "powershell.exe Set-Content "
 WIN_FILE_READ = "powershell.exe get-Content "
 
@@ -783,8 +804,11 @@ CHOICE_OS = ['W','w','U','u','Q','q','N','n']
 # Accepts 'C','c','S','s','Q','q','A','a'
 CHOICE_PROCEED = ['C','c','S','s','Q','q','A','a']
 
-# Remembers the answer to the "unexpected time delays" prompt so it isn't asked again this run.
+# Remembers the answer to the "unexpected time delays" prompt.
 UNSTABLE_REQUEST_CHOICE = None
+
+# Remembers the answer to the "'/bin/' path prefix" prompt.
+USE_BIN_SUBDIR_CHOICE = None
 
 # How many seconds "Continue" has already added to timesec, capped by MAX_UNSTABLE_TIMESEC_BUMP.
 UNSTABLE_REQUEST_BUMPS = 0
@@ -800,18 +824,21 @@ AVAILABLE_TECHNIQUES = ['c','e','t','f']
 
 # Supported injection types
 class INJECTION_TYPE(object):
-  RESULTS_BASED_CI = "results-based OS command injection"
+  RESULTS_BASED_CI = "results-based command injection"
   RESULTS_BASED_CE = "results-based dynamic code evaluation"
-  BLIND = "blind OS command injection"
-  SEMI_BLIND = "semi-blind OS command injection"
+  BLIND = "blind command injection"
+  SEMI_BLIND = "semi-blind command injection"
 
 # Supported injection techniques
 class INJECTION_TECHNIQUE(object):
   CLASSIC = "classic command injection technique"
   DYNAMIC_CODE = "dynamic code evaluation technique"
   TIME_BASED = "time-based command injection technique"
-  FILE_BASED = "file-based command injection technique"
+  FILE_BASED = "file-based injection technique"
   TEMP_FILE_BASED = "tempfile-based injection technique"
+
+# Canonical order techniques are tested and reported in.
+TECHNIQUE_ORDER = [INJECTION_TECHNIQUE.CLASSIC, INJECTION_TECHNIQUE.DYNAMIC_CODE, INJECTION_TECHNIQUE.TIME_BASED, INJECTION_TECHNIQUE.FILE_BASED, INJECTION_TECHNIQUE.TEMP_FILE_BASED]
 
 USER_APPLIED_TECHNIQUE = False
 SKIP_TECHNIQUES = False
@@ -873,7 +900,10 @@ SHELL_OPTIONS = [
         "os_shell",
         "reverse_tcp",
         "bind_tcp",
+        "use",
+        "run",
         "set",
+        "show",
 ]
 
 # Accepted reverse tcp shell menu options
@@ -883,6 +913,7 @@ SET_OPTIONS = [
         "LPORT",
         "SRVPORT",
         "URIPATH",
+        "HANDLER",
 ]
 
 # Delimiter used to separate individual cookies in the Cookie HTTP header
@@ -1141,6 +1172,10 @@ PS_ENABLED = None
 
 # ANSI colors removal
 ANSI_COLOR_REMOVAL = r'\x1b[^m]*m'
+_ANSI_COLOR_REMOVAL_REGEX = re.compile(ANSI_COLOR_REMOVAL)
+
+def strip_ansi_codes(text):
+  return _ANSI_COLOR_REMOVAL_REGEX.sub("", text)
 
 # Default LHOST / LPORT / RHOST setup,
 # for the reverse TCP connection
@@ -1152,13 +1187,32 @@ RHOST = ""
 URIPATH = "/"
 SRVPORT = 8080
 
+# Catch bind/reverse shells with a built-in listener instead of an external nc/ncat.
+HANDLER = False
+LAST_SELECTED_MODULE = ""
+
 # Session Handler
 SESSION_FILE = ""
 LOAD_SESSION = None
 # Whether a stored technique likely exists for the current target (host + method).
 LIKELY_RESUME = False
-# Cache stored techniques per parameter to avoid repeated session database queries.
+# Cache stored techniques per parameter.
 STORED_TECHNIQUES = {}
+# Pending file/tempfile-based cleanups, asked at quit() - keyed by output file path.
+PENDING_FILE_CLEANUPS = {}
+# Findings confirmed this run, for the end-of-run summary.
+CONFIRMED_INJECTION_POINTS = []
+# (prefix, suffix, separator, whitespace) confirmed by one technique, tried first by the others.
+CONFIRMED_BOUNDARY = {}
+# Whether the "keep testing others" prompt already fired for this target.
+ASKED_KEEP_TESTING = False
+# Post-detection actions (enumeration, file access, --os-cmd), deferred until quit().
+PENDING_POST_DETECTION_ACTIONS = []
+OS_CMD_DONE = False
+# The single deferred --os-shell entry, run at quit().
+PENDING_OS_SHELL_ENTRY = None
+# Guards the resumed-session log notice against quit()'s recursion.
+LOGS_NOTIFICATION_SHOWN = False
 
 # Path to file containing desktop/browser User-Agent strings
 USER_AGENT_LIST = os.path.join(TXT_DIR, "user-agents.txt")
@@ -1190,6 +1244,9 @@ class AUTH_TYPE(object):
   BASIC = "basic"
   DIGEST = "digest"
   BEARER = "bearer"
+
+# Cached digest realm, discovered from the target's WWW-Authenticate challenge.
+DIGEST_AUTH_REALM = None
 
 RAW_HTTP_HEADERS = ""
 
@@ -1236,12 +1293,34 @@ class PRIORITY(object):
   LOWER = -75
   LOWEST = -100
 
+# Tamper script pairs that cannot be combined.
+INCOMPATIBLE_TAMPER_SCRIPTS = [
+                  # "\$" is a literal "$", so the escape kills the other script's "$@" / "${XX}".
+                  ("backslashes", "dollaratsigns"),
+                  ("backslashes", "uninitializedvariable"),
+                  # "$@" lands inside "${XX}", corrupting the variable name.
+                  ("dollaratsigns", "uninitializedvariable"),
+                  # "''" is literal inside the double-quoted "tr" ranges that "randomcase" builds.
+                  ("randomcase", "singlequotes")
+]
+
+# Words that must survive per-character obfuscation - shell keywords stop being keywords once
+# obfuscated, and user-supplied commands can still use them.
 IGNORE_TAMPER_TRANSFORMATION = [
                   "IFS",
                   "if",
                   "then",
+                  "elif",
                   "else",
                   "fi",
+                  "for",
+                  "while",
+                  "until",
+                  "do",
+                  "done",
+                  "case",
+                  "esac",
+                  "in",
                   "cmd",
                   "%0d",
                   "PATH%%u*",
@@ -1330,7 +1409,7 @@ MAX_RETRIES = 3
 CONNECTION_ERROR_RETRIES = 0
 MAX_CONNECTION_ERROR_RETRIES = 5
 
-# Count of connection-error warnings actually shown - excludes silent, harmless retries.
+# Count of connection-error warnings shown.
 VISIBLE_CONNECTION_ERRORS = 0
 
 # Statistical model for recognizing a delay against this target's own response times.
@@ -1338,11 +1417,13 @@ TIME_STDEV_COEFF = 7
 TIME_OUTLIER_MAD_COEFF = 10
 # Decision-threshold floor and shrink-candidate validity margin.
 MIN_VALID_DELAYED_RESPONSE = 0.5
+# Minimum delay-threshold margin above the mean, as a fraction of the mean.
+MIN_RELATIVE_DELAY_MARGIN = 0.5
 WARN_TIME_STDEV = 0.5
 
 # One escalate/shrink step, in seconds - separate from the floor above.
 TIME_DELAY_STEP = 1
-# Target size of the upfront baseline warm-up - the adaptive threshold itself doesn't wait for this many samples to activate.
+# Target size of the upfront baseline warm-up.
 MIN_TIME_RESPONSES = 30
 MAX_TIME_RESPONSES = 200
 RESPONSE_TIMES = []
@@ -1352,7 +1433,7 @@ TIME_DELAY_CANDIDATES = 3
 # Retries for a failed (not just slow) request during time-based measurement.
 TIME_RELATED_ATTACK_RETRIES = 3
 
-# Best known timesec for this target, reused across commands to avoid recalibration.
+# Best known timesec for this target.
 CALIBRATED_TIMESEC = None
 
 # Latched once a re-verification ever fails - widens retries and upgrades checks to a vote.
@@ -1363,7 +1444,7 @@ MAX_LENGTH_REVALIDATIONS = 5
 NARROWING_MIN_OBSERVED = 3
 NARROWING_MAX_SET_SIZE = 64
 
-# Probe the most-frequent characters first to speed up extraction for skewed distributions.
+# Number of most-frequent characters probed directly before bisecting.
 FREQUENCY_PROBE_TOP_K = 3
 
 # Prevent auto-shrink from undoing a delay increase after validation.
@@ -1380,16 +1461,19 @@ VALID_TIME_CHARS_RUN_THRESHOLD = 100
 THREADED_TIME_RETRIEVAL_CHOICE = None
 
 # Technique titles to suppress when a fallback already announced the transition.
-SKIP_NEXT_TECHNIQUE_TITLE = None
+# The (parameter, technique) last announced, so a re-announcement reads as "Continuing with".
+LAST_ANNOUNCED_TECHNIQUE = None
 
 # Retries for the false-positive/unexploitable-point re-verification during detection.
 FALSE_POSITIVE_RETRIES = 3
 
-# Prefix marking an interrupted command result for resumption instead of replay.
+# Verification rounds for classic/eval/file-based.
+RESULTS_BASED_VERIFY_ROUNDS = 2
+
+# Prefix marking an interrupted command result.
 PARTIAL_VALUE_MARKER = "\x02COMMIX_PARTIAL\x02"
 
-# Max characters shown at once in the live "characters extracted so far" progress line -
-# a long output shows only a trailing window of this width instead of growing unbounded.
+# Max characters shown at once in the live progress line.
 PROGRESS_DISPLAY_WIDTH = 60
 
 # Init Test

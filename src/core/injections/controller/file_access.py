@@ -13,83 +13,52 @@ the Free Software Foundation, either version 3 of the License, or
 For more see the file 'readme/COPYING' for copying permission.
 """
 
-import re
-import os
-import sys
 from src.utils import menu
-from src.utils import common
 from src.utils import settings
 from src.utils import session_handler
 from src.core.injections.controller import checks
-from src.core.requests import requests
+from src.core.injections.controller import execution
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.colorama import Fore, Back, Style, init
 
 """
 Write to a file on the target host.
 """
 def file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
-  _ = False
+  fresh_time = False
   file_to_write, dest_to_write, content = checks.check_file_to_write()
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if technique == settings.INJECTION_TECHNIQUE.DYNAMIC_CODE:
-      from src.core.injections.results_based.techniques.eval_based import eb_injector as injector
+      injector = execution.select_injector(technique)
     else:
-      from src.core.injections.results_based.techniques.classic import cb_injector as injector
+      injector = execution.select_injector(settings.INJECTION_TECHNIQUE.CLASSIC)
       if settings.TIME_RELATED_ATTACK:
         whitespace = settings.WHITESPACES[0]
-        _ = True
+        fresh_time = True
+    fire = execution.make_simple_execute_cmd(injector, separator, maxlen, TAG, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique, OUTPUT_TEXTFILE)
     fname, tmp_fname, cmd = checks.find_filename(dest_to_write, content)
-    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
+    fire(cmd)
     cmd = checks.win_decode_b64_enc(fname, tmp_fname)
-    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
-    injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
+    fire(cmd)
     cmd = checks.delete_tmp(tmp_fname)
-    response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
-    shell = injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
+    shell = fire(cmd)
   else:
-    if technique == settings.INJECTION_TECHNIQUE.CLASSIC:
-      from src.core.injections.results_based.techniques.classic import cb_injector as injector
-    elif technique == settings.INJECTION_TECHNIQUE.DYNAMIC_CODE:
-      from src.core.injections.results_based.techniques.eval_based import eb_injector as injector
-    elif technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-      from src.core.injections.blind.techniques.time_based import tb_injector as injector
-    elif technique == settings.INJECTION_TECHNIQUE.FILE_BASED:   
-      from src.core.injections.semiblind.techniques.file_based import fb_injector as injector
-    else:
-      from src.core.injections.semiblind.techniques.tempfile_based import tfb_injector as injector
+    injector = execution.select_injector(technique)
+    fire = execution.make_simple_execute_cmd(injector, separator, maxlen, TAG, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique, OUTPUT_TEXTFILE)
     cmd = checks.write_content(content, dest_to_write)
     if settings.TIME_RELATED_ATTACK:
       cmd = cmd + _urllib.parse.quote(separator) + settings.FILE_READ + dest_to_write
-      if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique)
-      else:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
-    else:
-      if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
-        cmd = cmd + settings.SINGLE_WHITESPACE + settings.COMMENT
-        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
-      else:
-        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
-      shell = injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
-    shell = "".join(str(p) for p in shell)
+    elif technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
+      cmd = cmd + settings.SINGLE_WHITESPACE + settings.COMMENT
+    shell = fire(cmd)
   cmd = checks.check_file(dest_to_write)
   if settings.TIME_RELATED_ATTACK:
-    if settings.VERBOSITY_LEVEL == 0 and not _:
+    if settings.VERBOSITY_LEVEL == 0 and not fresh_time:
       settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-      if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique)
-      else:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
+      shell = fire(cmd)
   else:
     if settings.USE_BACKTICKS:
       cmd = checks.remove_command_substitution(cmd)
-    if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
-      response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
-    else:
-      response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
-    shell = injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
-  shell = "".join(str(p) for p in shell)
+    shell = fire(cmd)
   if settings.TIME_RELATED_ATTACK:
     if settings.VERBOSITY_LEVEL == 0:
       settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
@@ -99,43 +68,17 @@ def file_write(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec,
 Read a file from the target host.
 """
 def file_read(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
-  if technique == settings.INJECTION_TECHNIQUE.CLASSIC:
-    from src.core.injections.results_based.techniques.classic import cb_injector as injector
-  elif technique == settings.INJECTION_TECHNIQUE.DYNAMIC_CODE:
-    from src.core.injections.results_based.techniques.eval_based import eb_injector as injector
-  elif technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-    from src.core.injections.blind.techniques.time_based import tb_injector as injector
-  elif technique == settings.INJECTION_TECHNIQUE.FILE_BASED:   
-    from src.core.injections.semiblind.techniques.file_based import fb_injector as injector
-  else:
-    from src.core.injections.semiblind.techniques.tempfile_based import tfb_injector as injector
-  _ = False
+  injector = execution.select_injector(technique)
   cmd, file_to_read = checks.file_content_to_read()
-  if not checks.usable_stored_cmd(session_handler.export_stored_cmd(url, cmd, vuln_parameter)) or menu.options.ignore_session:
-    if settings.TIME_RELATED_ATTACK and technique in (settings.INJECTION_TECHNIQUE.TIME_BASED, settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED) and \
-       not checks.file_readable(separator, timesec, http_request_method, url, vuln_parameter, whitespace, prefix, suffix, url_time_response, file_to_read, technique):
-      shell = ""
-    elif settings.TIME_RELATED_ATTACK:
-      if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique)
-      else:
-        check_exec_time, shell = injector.injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
-      session_handler.store_cmd(url, cmd, shell, vuln_parameter)
-      _ = True
-    else:
-      if technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
-        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
-      else:
-        response = injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, interpreter, filename, technique)
-        if settings.URL_RELOAD:
-          response = requests.url_reload(url, timesec)
-      shell = injector.injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, timesec)
-      shell = "".join(str(p) for p in shell)
+  execute_cmd = execution.make_execute_cmd(injector, separator, maxlen, TAG, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique, OUTPUT_TEXTFILE)
+  needs_fresh = not checks.usable_stored_cmd(session_handler.export_stored_cmd(url, cmd, vuln_parameter)) or menu.options.ignore_session
+  if needs_fresh and settings.TIME_RELATED_ATTACK and technique in (settings.INJECTION_TECHNIQUE.TIME_BASED, settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED) and \
+     not checks.file_readable(separator, timesec, http_request_method, url, vuln_parameter, whitespace, prefix, suffix, url_time_response, file_to_read, technique):
+    shell, fresh = "", False
   else:
-    shell = session_handler.export_stored_cmd(url, cmd, vuln_parameter)
-  shell = "".join(str(p) for p in shell)
+    shell, fresh = execute_cmd(cmd)
   if settings.TIME_RELATED_ATTACK:
-    if settings.VERBOSITY_LEVEL == 0 and _ and len(shell) != 0:
+    if settings.VERBOSITY_LEVEL == 0 and fresh and len(shell) != 0:
       settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
   checks.file_read_status(shell, file_to_read, filename)
 
@@ -155,24 +98,8 @@ def do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, h
 Check stored session
 """
 def stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
-  if settings.FILE_ACCESS_DONE == True :
-    while True:
-      message = "Do you want to ignore stored session and access files again? [y/N] "
-      file_access_again = common.read_input(message, default="N", check_batch=True)
-      if file_access_again in settings.CHOICE_YES:
-        if not menu.options.ignore_session:
-          menu.options.ignore_session = True
-        do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
-        break
-      elif file_access_again in settings.CHOICE_NO:
-        break
-      elif file_access_again in settings.CHOICE_QUIT:
-        raise SystemExit()
-      else:
-        common.invalid_option(file_access_again)
-        pass
-  else:
-    if menu.file_access_options():
-      do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
+  # Target-wide - run once, on the first successful technique.
+  if not settings.FILE_ACCESS_DONE and menu.file_access_options():
+    do_check(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique)
 
 # eof

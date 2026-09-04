@@ -23,25 +23,20 @@ except AttributeError:
 else:
   # Handle target environment that doesn't support HTTPS verification
   ssl._create_default_https_context = _create_unverified_https_context
-import sys
-
 import time
-import errno
-import base64
 try:
   from base64 import encodebytes
 except ImportError:
   from base64 import encodestring as encodebytes
-import socket
 from socket import error as SocketError
 from src.thirdparty.six.moves import http_client as _http_client
 from src.utils import logs
 from src.utils import menu
 from src.utils import settings
 from src.core.injections.controller import checks
+from src.core.requests import proxy
 from src.core.requests import redirection
 from src.core.requests import stability
-from src.thirdparty.colorama import Fore, Back, Style, init
 from src.thirdparty.six.moves import urllib as _urllib
 
 """
@@ -50,7 +45,6 @@ Encoding non-ASCII characters (in URL path and query).
 def encode_non_ascii_url(request):
   url = request.get_full_url()
   parts = _urllib.parse.urlsplit(url)
-  # Encode path, preserving '/', '*', and '%' to avoid over-encoding
   path = _urllib.parse.quote(parts.path, safe=settings.SAFE_PATH)
   # Encode query string, preserving delimiters and the parameter delimiter
   query = _urllib.parse.quote(parts.query, safe=settings.query_safe_chars() + settings.URL_PARAM_DELIMITER)
@@ -123,6 +117,21 @@ def print_http_response(response_headers, code, page):
     settings.print_data_to_stdout("")
 
 """
+Probe once to read the realm off the target's own WWW-Authenticate challenge.
+"""
+def discover_digest_realm(url):
+  try:
+    _urllib.request.urlopen(url, timeout=settings.TIMEOUT)
+  except _urllib.error.HTTPError as e:
+    authline = e.headers.get('www-authenticate', '')
+    match = re.match(r'''(\w*)\s+realm=(.*)''', authline)
+    if match:
+      return match.group(2).split(',')[0].strip().strip('"')
+  except Exception:
+    pass
+  return ""
+
+"""
 Checking the HTTP Headers & HTTP/S Request.
 """
 def check_http_traffic(request):
@@ -155,9 +164,6 @@ def check_http_traffic(request):
           logs.log_traffic(settings.END_LINE.LF + header)
       if ends_with_blank_line and settings.USER_DEFINED_POST_DATA and settings.VERBOSITY_LEVEL >= 2:
         settings.print_data_to_stdout("")
-      # This is the body-only send() call (headers always end in a blank line,
-      # this doesn't). At verbosity 2, responses aren't printed to close out
-      # the block themselves, so do it here instead.
       elif not ends_with_blank_line and settings.USER_DEFINED_POST_DATA and settings.VERBOSITY_LEVEL == 2:
         settings.print_data_to_stdout("")
       http_client.send(self, req)
@@ -180,9 +186,6 @@ def check_http_traffic(request):
     def http_open(self, req):
       try:
         self.print_http_response()
-        # do_open() already returns the real response - calling super().http_open()
-        # too would do_open() a SECOND time (its own default, unlogged connection),
-        # sending every request twice.
         return self.do_open(connection, req)
       except (SocketError, _urllib.error.HTTPError, _urllib.error.URLError, _http_client.BadStatusLine, _http_client.RemoteDisconnected, _http_client.IncompleteRead, _http_client.InvalidURL, Exception) as err_msg:
         checks.connection_exceptions(err_msg)
@@ -194,15 +197,27 @@ def check_http_traffic(request):
       except (SocketError, _urllib.error.HTTPError, _urllib.error.URLError, _http_client.BadStatusLine, _http_client.RemoteDisconnected, _http_client.IncompleteRead, _http_client.InvalidURL, Exception) as err_msg:
         checks.connection_exceptions(err_msg)
 
+  # Digest needs a handler on the sending opener, unlike Basic/Bearer's static header.
+  extra_handlers = []
+  if menu.options.auth_cred and menu.options.auth_type and menu.options.auth_type.lower() == settings.AUTH_TYPE.DIGEST:
+    if settings.DIGEST_AUTH_REALM is None:
+      settings.DIGEST_AUTH_REALM = discover_digest_realm(menu.options.url)
+    digest_handler = _urllib.request.HTTPDigestAuthHandler()
+    username, _, password = menu.options.auth_cred.partition(":")
+    digest_handler.add_password(settings.DIGEST_AUTH_REALM, menu.options.url, username, password)
+    extra_handlers.append(digest_handler)
+
+  request = encode_non_ascii_url(request)
+
   # Also route through the configured proxy/Tor, so this fetch is reusable.
   if menu.options.ignore_proxy:
-    opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({}), connection_handler(), redirection.RedirectHandler())
+    opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({}), connection_handler(), redirection.RedirectHandler(), *extra_handlers)
   elif menu.options.tor:
-    opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({settings.SCHEME: menu.options.proxy}), connection_handler(), redirection.RedirectHandler())
+    opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({settings.SCHEME: menu.options.proxy}), connection_handler(), redirection.RedirectHandler(), *extra_handlers)
   else:
     if menu.options.proxy:
       request.set_proxy(menu.options.proxy, settings.SCHEME)
-    opener = _urllib.request.build_opener(connection_handler(), redirection.RedirectHandler())
+    opener = _urllib.request.build_opener(connection_handler(), redirection.RedirectHandler(), *extra_handlers)
 
   # Time limit mechanism.
   if menu.options.time_limit and (time.time() - settings.START_TIME > menu.options.time_limit):
@@ -211,7 +226,6 @@ def check_http_traffic(request):
   _ = False
   response = False
   unauthorized = False
-  # Reused below instead of a fresh request, so a matched error isn't sent twice.
   pending_error = None
   while stability.should_keep_retrying(_, unauthorized):
     if any((settings.REVERSE_TCP, settings.BIND_TCP)):
@@ -223,7 +237,6 @@ def check_http_traffic(request):
         settings.MULTI_ENCODED_PAYLOAD = []
         menu.options.tamper = settings.USER_APPLIED_TAMPER
     try:
-      request = encode_non_ascii_url(request)
       response = opener.open(request, timeout=settings.TIMEOUT)
       _ = True
       with settings.REQUESTS_LOCK:
@@ -235,7 +248,7 @@ def check_http_traffic(request):
         if not settings.CHECK_INTERNET:
           settings.INIT_TEST = False
 
-    except ValueError as err:
+    except ValueError:
       if settings.VERBOSITY_LEVEL < 2:
         settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
       err_msg = "You provided an invalid target URL."
@@ -310,6 +323,10 @@ def check_http_traffic(request):
       response_headers = err.info()
       code = err.code
       print_http_response(response_headers, code, page)
+      # WAF/CAPTCHA/block pages are usually served as error codes - check the body here too.
+      checks.captcha_check(page)
+      checks.browser_verification(page)
+      checks.blocked_ip(page)
 
       if (not settings.PERFORM_CRACKING and \
       not settings.IS_JSON and \
@@ -363,6 +380,19 @@ def check_http_traffic(request):
       err_msg = "The target host is not responding. Please ensure it is up and try again."
       settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
       raise SystemExit()
+
+"""
+Send a request, falling back to proxy/urlopen only if check_http_traffic() found no response.
+"""
+def send_request(request):
+  do_check(request)
+  response = check_http_traffic(request)
+  if response is None:
+    if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
+      response = proxy.use_proxy(request)
+    else:
+      response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
+  return response
 
 """
 Check for added headers.
@@ -422,28 +452,7 @@ def do_check(request):
     elif menu.options.auth_type.lower() == settings.AUTH_TYPE.BASIC:
       b64_string = encodebytes(menu.options.auth_cred.encode(settings.DEFAULT_CODEC)).decode().replace(settings.END_LINE.LF, '')
       request.add_header(settings.AUTHORIZATION, "Basic " + b64_string)
-    elif menu.options.auth_type.lower() == settings.AUTH_TYPE.DIGEST:
-      try:
-        url = menu.options.url
-        try:
-          response = _urllib.request.urlopen(url, timeout=settings.TIMEOUT)
-        except (_urllib.error.HTTPError, _urllib.error.URLError) as e:
-          try:
-            authline = e.headers.get('www-authenticate', '')
-            authobj = re.match(r'''(\w*)\s+realm=(.*),''',authline).groups()
-            realm = authobj[1].split(',')[0].replace("\"", "")
-            user_pass_pair = menu.options.auth_cred.split(":", 1)
-            username = user_pass_pair[0]
-            password = user_pass_pair[1]
-            authhandler = _urllib.request.HTTPDigestAuthHandler()
-            authhandler.add_password(realm, url, username, password)
-            opener = _urllib.request.build_opener(authhandler, redirection.RedirectHandler())
-            _urllib.request.install_opener(opener)
-            result = _urllib.request.urlopen(url, timeout=settings.TIMEOUT)
-          except AttributeError:
-            pass
-      except (_urllib.error.HTTPError, _urllib.error.URLError) as e:
-        pass
+    # Digest is handled in check_http_traffic()'s opener, not here.
 
   else:
     pass
@@ -498,7 +507,6 @@ def do_check(request):
         # Check if it is a custom header injection.
         if http_header_name not in [settings.ACCEPT, settings.HOST, settings.USER_AGENT, settings.REFERER, settings.COOKIE]:
           if not settings.CUSTOM_HEADER_INJECTION:
-            # Values like 'Accept: */*' or ';q=0.9' legitimately contain '*' - don't misread them as a marker.
             benign_value = re.sub(settings.PROBLEMATIC_CUSTOM_INJECTION_PATTERNS, "", http_header_value)
             if settings.CUSTOM_INJECTION_MARKER_CHAR in benign_value:
               settings.CUSTOM_INJECTION_MARKER = True

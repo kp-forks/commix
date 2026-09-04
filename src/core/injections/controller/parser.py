@@ -15,16 +15,22 @@ For more see the file 'readme/COPYING' for copying permission.
 
 import os
 import re
-import sys
-import time
+import json
 import base64
 import binascii
-import datetime
 from src.utils import menu
 from src.utils import settings
+from src.thirdparty.odict import OrderedDict
 from src.core.injections.controller import checks
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.colorama import Fore, Back, Style, init
+from src.thirdparty.flatten_json.flatten_json import unflatten_list
+
+"""
+Extract a single header's value from a raw "Name: value" line, or None if it's a different header.
+"""
+def _extract_header_value(header_name, line):
+  match = re.findall(r"^" + header_name + ":" + " (.*)", line)
+  return "".join([str(i) for i in match]) if match else None
 
 """
 Parse target and data from http proxy logs (i.e Burp or WebScarab)
@@ -84,21 +90,29 @@ def logfile_parser():
     if menu.options.requestfile or menu.options.logfile:
       c = 1
       request_headers = []
+      if menu.options.header:
+        request_headers.append(menu.options.header)
+      elif menu.options.headers:
+        request_headers.extend(menu.options.headers.split(settings.END_LINE.ESCAPED_LF))
       request_lines = request.split(settings.END_LINE.LF)
-      # No ':' means body start, not a header (avoids dropping the body).
       while c < len(request_lines) and len(request_lines[c]) > 0 and ':' in request_lines[c]:
         x = request_lines[c].find(':')
         header_name = request_lines[c][:x].title()
         header_value = request_lines[c][x + 1:]
-        if menu.options.header:
-          request_headers.append(menu.options.header)
-        elif menu.options.headers:
-          request_headers.extend(menu.options.headers.split(settings.END_LINE.ESCAPED_LF))
         request_headers.append(header_name + ":" + header_value)
         c += 1
       if c < len(request_lines) and len(request_lines[c]) == 0:
         c += 1
       menu.options.data = "".join(request_lines[c:] if c < len(request_lines) else "")
+
+      # Normalize a JSON body right away, so every request (including the first
+      # connectivity check) uses the same pretty-printed form, not the raw file layout.
+      if re.search(settings.JSON_RECOGNITION_REGEX, menu.options.data) or re.search(settings.JSON_LIKE_RECOGNITION_REGEX, menu.options.data):
+        try:
+          parsed = json.loads(menu.options.data, object_pairs_hook=OrderedDict)
+          menu.options.data = json.dumps(unflatten_list(parsed), indent=2, ensure_ascii=False)
+        except Exception:
+          pass
       settings.RAW_HTTP_HEADERS = settings.END_LINE.ESCAPED_LF.join(request_headers)
 
   except IOError as err_msg:
@@ -136,18 +150,19 @@ def logfile_parser():
   scheme = "http://"
 
   for line in request_headers:
-    if re.findall(r"^" + settings.HOST + ":" + " (.*)", line):
-      menu.options.host = "".join([str(i) for i in re.findall(r"" + settings.HOST + ":" + " (.*)", line)])
-    # User-Agent Header
-    if re.findall(r"" + settings.USER_AGENT + ":" + " (.*)", line):
-      menu.options.agent = "".join([str(i) for i in re.findall(r"" + settings.USER_AGENT + ":" + " (.*)", line)])
-    # Cookie Header
-    if re.findall(r"" + settings.COOKIE + ":" + " (.*)", line):
-      menu.options.cookie = "".join([str(i) for i in re.findall(r"" + settings.COOKIE + ":" + " (.*)", line)])
-    # Referer Header
-    if re.findall(r"" + settings.REFERER + ":" + " (.*)", line):
-      menu.options.referer = "".join([str(i) for i in re.findall(r"" + settings.REFERER + ":" + " (.*)", line)])
-      if menu.options.referer and "https://" in menu.options.referer:
+    host_value = _extract_header_value(settings.HOST, line)
+    if host_value is not None:
+      menu.options.host = host_value
+    agent_value = _extract_header_value(settings.USER_AGENT, line)
+    if agent_value is not None:
+      menu.options.agent = agent_value
+    cookie_value = _extract_header_value(settings.COOKIE, line)
+    if cookie_value is not None:
+      menu.options.cookie = cookie_value
+    referer_value = _extract_header_value(settings.REFERER, line)
+    if referer_value is not None:
+      menu.options.referer = referer_value
+      if "https://" in referer_value:
         scheme = "https://"
     if re.findall(r"" + settings.AUTHORIZATION + ":" + " (.*)", line):
       auth_provided = "".join([str(i) for i in re.findall(r"" + settings.AUTHORIZATION + ":" + " (.*)", line)]).split()
@@ -173,15 +188,10 @@ def logfile_parser():
 
     # Add extra headers
     else:
-      match = re.findall(r"(.*): (.*)", line)
-      match = "".join([str(i) for i in match]).replace("', '",":")
-      match = match.replace("('", "")
-      match = match.replace("')",settings.END_LINE.ESCAPED_LF)
-      # Ignore some header.
-      if settings.CONTENT_LENGTH or settings.ACCEPT_ENCODING in match:
-        extra_headers = extra_headers
-      else:
-        extra_headers = extra_headers + match
+      match = re.match(r"(.*): (.*)", line)
+      # Ignore some headers.
+      if match and match.group(1) not in (settings.CONTENT_LENGTH, settings.ACCEPT_ENCODING):
+        extra_headers += match.group(1) + ":" + match.group(2) + settings.END_LINE.ESCAPED_LF
 
   # Extra headers
   menu.options.headers = extra_headers
@@ -199,14 +209,5 @@ def logfile_parser():
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
     
     menu.options.url = request_url
-    if menu.options.logfile and settings.VERBOSITY_LEVEL != 0:
-      sub_content = http_method + settings.SINGLE_WHITESPACE + menu.options.url
-      settings.print_data_to_stdout(settings.print_sub_content(sub_content))
-      if menu.options.cookie:
-         sub_content = "Cookie: " + menu.options.cookie
-         settings.print_data_to_stdout(settings.print_sub_content(sub_content))
-      if menu.options.data:
-         sub_content = "POST data: " + menu.options.data
-         settings.print_data_to_stdout(settings.print_sub_content(sub_content))
 
 # eof

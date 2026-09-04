@@ -15,12 +15,9 @@ For more see the file 'readme/COPYING' for copying permission.
 
 import os
 import subprocess
-from src.utils import menu
 from src.utils import common
 from src.utils import settings
 from src.utils import requirements
-from src.thirdparty.six.moves import input as _input
-from src.thirdparty.colorama import Fore, Back, Style, init
 
 # Removal Function 
 def remove():

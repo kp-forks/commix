@@ -23,7 +23,7 @@ The dynamic code evaluation (aka eval-based) technique.
 The "eval-based" injection technique handler.
 """
 def eb_injection_handler(url, timesec, filename, http_request_method, injection_type, technique):
-  return handler.do_results_based_proccess(url, timesec, filename, http_request_method, injection_type, technique)
+  return handler.do_results_based_process(url, timesec, filename, http_request_method, injection_type, technique)
 
 """
 The exploitation function.

@@ -14,9 +14,7 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 import re
-import sys
 import time
-import socket
 import difflib
 import statistics
 from socket import error as SocketError
@@ -31,16 +29,12 @@ from src.utils import common
 from src.utils import crawler
 from src.core.requests import proxy
 from src.core.requests import headers
-from src.core.requests import requests
 from src.core.requests import parameters
 from src.core.requests import redirection
 from src.core.requests import authentication
 from src.core.requests import stability
 from src.core.injections.controller import checks
-from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.six.moves import http_client as _http_client
-from src.thirdparty.colorama import Fore, Back, Style, init
 
 """
 Check if the content of the given URL is stable over time.
@@ -51,7 +45,6 @@ def is_url_content_stable(url, response=None, fetch_time=None, http_request_meth
   settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
   def _build_request():
-    # Must mirror the real request (method + POST body) - comparing against a bare GET makes a stable page look "dynamic".
     method = http_request_method or settings.HTTPMETHOD.GET
     if settings.USER_DEFINED_POST_DATA:
       request = _urllib.request.Request(url, settings.USER_DEFINED_POST_DATA.encode(settings.DEFAULT_CODEC), method=method)
@@ -62,7 +55,6 @@ def is_url_content_stable(url, response=None, fetch_time=None, http_request_meth
 
   try:
     if response is not None:
-      # Reuse the connection-test response and make .read() reusable for later checks.
       raw_body = response.read()
       first_response_content = raw_body.strip()
       response.read = (lambda _b: lambda *a, **kw: _b)(raw_body)
@@ -74,14 +66,12 @@ def is_url_content_stable(url, response=None, fetch_time=None, http_request_meth
         first_response.close()
       fetch_time = time.time()
 
-    # Only wait out what's left of the window - earlier steps (WAF check) count too.
     remaining = settings.STABILITY_CHECK_DELAY
     if fetch_time is not None:
       remaining = max(0, min(settings.STABILITY_CHECK_DELAY, settings.STABILITY_CHECK_DELAY - (time.time() - fetch_time)))
     if remaining:
       time.sleep(remaining)
 
-    # Bare urlopen(url) would drop the user's cookie/headers, making an authenticated target look different.
     second_response = _urllib.request.urlopen(_build_request(), timeout=settings.TIMEOUT)
     try:
       second_response_content = second_response.read().strip()
@@ -118,8 +108,6 @@ def crawler_request(url, http_request_method):
       data = None
     request = _urllib.request.Request(url, data, method=http_request_method)
     headers.do_check(request)
-    # check_http_traffic() already sends the request - reusing its result instead
-    # of discarding it and sending a second, identical one.
     response = headers.check_http_traffic(request)
     if response is None:
       if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
@@ -128,7 +116,7 @@ def crawler_request(url, http_request_method):
         response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
     if type(response) is not bool and settings.FOLLOW_REDIRECT and response is not None:
       if response.geturl() != url:
-        href = redirection.do_check(request, url, response.geturl(), http_request_method)
+        href = redirection.do_check(url, response.geturl())
         if href != url:
           crawler.store_hrefs(href, identified_hrefs=True, redirection=True)
     return response
@@ -143,6 +131,21 @@ def crawler_request(url, http_request_method):
         request_failed(err_msg)
 
 """
+Attach a harmless (tag-stripped) version of the cookie/header under test - do_check() skips it, but timing samples need the same target-side cost as real requests.
+"""
+def _attach_injection_point_placeholder(request):
+  if settings.COOKIE_INJECTION and menu.options.cookie:
+    request.add_header(settings.COOKIE, checks.remove_tags(menu.options.cookie))
+  elif settings.USER_AGENT_INJECTION and menu.options.agent:
+    request.add_header(settings.USER_AGENT, checks.remove_tags(menu.options.agent))
+  elif settings.REFERER_INJECTION and menu.options.referer:
+    request.add_header(settings.REFERER, checks.remove_tags(menu.options.referer))
+  elif settings.HOST_INJECTION and menu.options.host:
+    request.add_header(settings.HOST, checks.remove_tags(menu.options.host))
+  elif settings.CUSTOM_HEADER_INJECTION and settings.CUSTOM_HEADER_VALUE:
+    request.add_header(settings.CUSTOM_HEADER_NAME, checks.remove_tags(settings.CUSTOM_HEADER_VALUE))
+
+"""
 A single, best-effort clean response-time sample; returns None on failure instead of raising.
 """
 def quick_response_time_sample(url, http_request_method):
@@ -152,6 +155,7 @@ def quick_response_time_sample(url, http_request_method):
     else:
       request = _urllib.request.Request(url.replace(settings.TESTABLE_VALUE + settings.INJECT_TAG, settings.TESTABLE_VALUE), method=http_request_method)
     headers.do_check(request)
+    _attach_injection_point_placeholder(request)
     start = time.time()
     response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
     response.read(1)
@@ -178,6 +182,7 @@ def _measure_response_time_with_auth_handling(url, http_request_method):
     request = _urllib.request.Request(url.replace(settings.TESTABLE_VALUE + settings.INJECT_TAG, settings.TESTABLE_VALUE), method=http_request_method)
 
   headers.do_check(request)
+  _attach_injection_point_placeholder(request)
   start = time.time()
   try:
     response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
@@ -324,7 +329,6 @@ Estimating the response time (in seconds) - median of several samples, since one
 def estimate_response_time(url, timesec, http_request_method):
   samples = []
 
-  # Reuse url_response()'s own connection-test timing instead of repeating the round-trip.
   if settings.INIT_CONNECTION_TIME is not None:
     samples.append(settings.INIT_CONNECTION_TIME)
     settings.INIT_CONNECTION_TIME = None
@@ -358,7 +362,6 @@ def _finish_response_time_estimate(diff, timesec):
     warn_msg += " data extraction."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
-  # No preemptive bump - the real delay decision uses the adaptive baseline threshold, not this estimate.
   timesec = int(timesec)
 
   settings.URL_TIME_RESPONSE = url_time_response
@@ -371,7 +374,6 @@ def request_failed(err_msg):
 
   stability.mark_url_invalid()
 
-  # A deliberately unfollowed redirect isn't a real failure.
   if not settings.FOLLOW_REDIRECT and getattr(err_msg, "code", None) in (301, 302, 303, 307):
     stability.mark_url_valid()
     return False
@@ -397,6 +399,8 @@ def request_failed(err_msg):
 
   elif re.search(r"(connection\s*refused|timed?\s*out|no\s*route|unreachable|tunnel)", str(error_msg), re.IGNORECASE):
     stability.disable_retries()
+    if any((settings.BIND_TCP, settings.REVERSE_TCP)) and re.search(r"timed?\s*out", str(error_msg), re.IGNORECASE):
+      raise SystemExit()
     err = "Unable to connect to the target URL"
     if menu.options.tor:
       err += " using the Tor network"
@@ -418,8 +422,7 @@ def request_failed(err_msg):
 
   elif settings.UNAUTHORIZED_ERROR in str(err_msg).lower():
     if int(settings.UNAUTHORIZED_ERROR) in settings.IGNORE_CODE or \
-       settings.PERFORM_CRACKING or \
-       settings.WAF_DETECTION_PHASE:
+       settings.PERFORM_CRACKING:
       return False
     else:
       err_msg = "Not authorized (" + settings.UNAUTHORIZED_ERROR + "). "
@@ -428,9 +431,9 @@ def request_failed(err_msg):
         if settings.MULTI_TARGETS or settings.CRAWLING:
           err_msg += ". "
         else:
-          err_msg += " or rerun without providing them, in order to perform a dictionary-based attack. "
+          err_msg += " or re-run without providing them, in order to perform a dictionary-based attack. "
       else:
-        err_msg += " or rerun by providing option '--ignore-code=" + settings.UNAUTHORIZED_ERROR +"'. "
+        err_msg += " or re-run by providing option '--ignore-code=" + settings.UNAUTHORIZED_ERROR +"'. "
       if settings.CRAWLING:
         err_msg += "Skipping to the next target."
       settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
@@ -451,13 +454,11 @@ def request_failed(err_msg):
     elif "forcibly closed" in str(error_msg) or "Connection is already closed" in str(error_msg):
       error_msg = "Connection was forcibly closed by the target URL."
     elif checks.detect_waf(getattr(err_msg, "code", None)):
-      # First request never reaches continue_tests(), so check here too.
       if not settings.NOT_FOUND_ERROR in str(err_msg).lower():
         return False
       return True
     elif [True for err_code in settings.HTTP_ERROR_CODES if err_code in str(error_msg)]:
       status_code = [err_code for err_code in settings.HTTP_ERROR_CODES if err_code in str(error_msg)]
-      # Same de-dup as continue_tests() - a code already warned about there (or here) shouldn't warn again.
       if not (len(settings.IGNORE_CODE) != 0 and any(str(x) in str(error_msg).lower() for x in settings.IGNORE_CODE)):
         warn_msg = "The web server responded with an HTTP error code '" + str(status_code[0])
         warn_msg += "' which could interfere with the results of the tests."
@@ -467,7 +468,6 @@ def request_failed(err_msg):
         return False
       return True
     elif stability.should_retry_connection_error(error_msg):
-      # Likely transient noise, not a dead target.
       return True
     else:
       error_msg = "The provided target URL does not seem reachable. "
@@ -477,7 +477,7 @@ def request_failed(err_msg):
       if not any((menu.options.proxy, menu.options.ignore_proxy, menu.options.tor)):
         items.append("proxy switches ('--proxy', '--ignore-proxy'...).")
       if items:
-        error_msg += "It might still be reachable. Try rerunning with "
+        error_msg += "It might still be reachable. Try re-running with "
         error_msg += " and/or ".join(items)
     settings.print_data_to_stdout(settings.print_critical_msg(error_msg))
     if not settings.CRAWLING:
@@ -512,7 +512,6 @@ Get the response of the request
 """
 def get_request_response(request):
 
-  # Reuse check_http_traffic()'s own fetch instead of requesting twice.
   response = headers.check_http_traffic(request)
   if response is not None:
     return response
@@ -568,7 +567,6 @@ def init_injection(payload, http_request_method, url):
   response = get_request_response(request)
 
   if settings.TIME_RELATED_ATTACK:
-    # A failed request measured nothing real - retry instead of using its elapsed time.
     failed_attempts = 0
     while response is False and failed_attempts < settings.TIME_RELATED_ATTACK_RETRIES:
       failed_attempts += 1
@@ -576,42 +574,25 @@ def init_injection(payload, http_request_method, url):
       response = get_request_response(request)
     end = time.time()
     response = end - start
-  else:
-    exec_time = response
 
   return response, vuln_parameter
 
 """
-Check if target host is vulnerable. (Cookie-based injection)
+Check if target host is vulnerable, injecting payload via the given set_header(request, payload) callback.
 """
-def cookie_injection(url, vuln_parameter, payload, http_request_method):
+def header_injection(url, payload, http_request_method, set_header):
 
-  def inject_cookie(url, vuln_parameter, payload, http_request_method):
-
+  def inject_header(url, payload, http_request_method):
     # Check if defined POST data
     if settings.USER_DEFINED_POST_DATA:
       data = settings.USER_DEFINED_POST_DATA.encode(settings.DEFAULT_CODEC)
     else:
       data = None
     request = _urllib.request.Request(url, data, method=http_request_method)
-    #Check if defined extra headers.
-    headers.do_check(request)
     payload = checks.normalize_newlines(payload)
-    if settings.INJECT_TAG in menu.options.cookie:
-      # Percent-encode before inserting into the cookie; raw delimiters or spaces can corrupt the value, and PHP's $_COOKIE decodes it automatically.
-      encoded_payload = _urllib.parse.quote(payload, safe=settings.query_safe_chars())
-      cookie = checks.process_injectable_value(encoded_payload, menu.options.cookie)
-      request.add_header(settings.COOKIE, cookie)
+    set_header(request, payload)
     try:
-      # check_http_traffic() already sends the request - reuse its result
-      # instead of sending the same request again.
-      response = headers.check_http_traffic(request)
-      if response is None:
-        if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
-          response = proxy.use_proxy(request)
-        else:
-          response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
-      return response
+      return headers.send_request(request)
     except ValueError:
       pass
 
@@ -621,200 +602,59 @@ def cookie_injection(url, vuln_parameter, payload, http_request_method):
     start = time.time()
 
   try:
-    response = inject_cookie(url, vuln_parameter, payload, http_request_method)
+    response = inject_header(url, payload, http_request_method)
   except Exception as err_msg:
     response = request_failed(err_msg)
 
   if settings.TIME_RELATED_ATTACK :
+    failed_attempts = 0
+    while response is False and failed_attempts < settings.TIME_RELATED_ATTACK_RETRIES:
+      failed_attempts += 1
+      start = time.time()
+      try:
+        response = inject_header(url, payload, http_request_method)
+      except Exception as err_msg:
+        response = request_failed(err_msg)
     end  = time.time()
     exec_time = end - start
     return exec_time
   else:
     return response
+
+"""
+Check if target host is vulnerable. (Cookie-based injection)
+"""
+def cookie_injection(url, payload, http_request_method):
+  def set_cookie(request, payload):
+    if settings.INJECT_TAG in menu.options.cookie:
+      encoded_payload = _urllib.parse.quote(payload, safe=settings.query_safe_chars())
+      cookie = checks.process_injectable_value(encoded_payload, menu.options.cookie)
+      request.add_header(settings.COOKIE, cookie)
+  return header_injection(url, payload, http_request_method, set_cookie)
 
 """
 Check if target host is vulnerable. (User-Agent-based injection)
 """
-def user_agent_injection(url, vuln_parameter, payload, http_request_method):
-
-  def inject_user_agent(url, vuln_parameter, payload, http_request_method):
-    # Check if defined POST data
-    if settings.USER_DEFINED_POST_DATA:
-      data = settings.USER_DEFINED_POST_DATA.encode(settings.DEFAULT_CODEC)
-    else:
-      data = None
-    request = _urllib.request.Request(url, data, method=http_request_method)
-    #Check if defined extra headers.
-    headers.do_check(request)
-    payload = checks.normalize_newlines(payload)
-    request.add_header(settings.USER_AGENT, payload)
-    try:
-      # check_http_traffic() already sends the request - reuse its result
-      # instead of sending the same request again.
-      response = headers.check_http_traffic(request)
-      if response is None:
-        if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
-          response = proxy.use_proxy(request)
-        else:
-          response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
-      return response
-    except ValueError:
-      pass
-
-  if settings.TIME_RELATED_ATTACK :
-    start = 0
-    end = 0
-    start = time.time()
-
-  try:
-    response = inject_user_agent(url, vuln_parameter, payload, http_request_method)
-  except Exception as err_msg:
-    response = request_failed(err_msg)
-
-  if settings.TIME_RELATED_ATTACK :
-    end = time.time()
-    exec_time = end - start
-    return exec_time
-  else:
-    return response
+def user_agent_injection(url, payload, http_request_method):
+  return header_injection(url, payload, http_request_method, lambda request, payload: request.add_header(settings.USER_AGENT, payload))
 
 """
 Check if target host is vulnerable. (Referer-based injection)
 """
-def referer_injection(url, vuln_parameter, payload, http_request_method):
-
-  def inject_referer(url, vuln_parameter, payload, http_request_method):
-    # Check if defined POST data
-    if settings.USER_DEFINED_POST_DATA:
-      data = settings.USER_DEFINED_POST_DATA.encode(settings.DEFAULT_CODEC)
-    else:
-      data = None
-    request = _urllib.request.Request(url, data, method=http_request_method)
-    #Check if defined extra headers.
-    headers.do_check(request)
-    payload = checks.normalize_newlines(payload)
-    request.add_header(settings.REFERER, payload)
-    try:
-      # check_http_traffic() already sends the request - reuse its result
-      # instead of sending the same request again.
-      response = headers.check_http_traffic(request)
-      if response is None:
-        if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
-          response = proxy.use_proxy(request)
-        else:
-          response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
-      return response
-    except ValueError:
-      pass
-
-  if settings.TIME_RELATED_ATTACK :
-    start = 0
-    end = 0
-    start = time.time()
-
-  try:
-    response = inject_referer(url, vuln_parameter, payload, http_request_method)
-  except Exception as err_msg:
-    response = request_failed(err_msg)
-
-  if settings.TIME_RELATED_ATTACK :
-    end  = time.time()
-    exec_time = end - start
-    return exec_time
-  else:
-    return response
+def referer_injection(url, payload, http_request_method):
+  return header_injection(url, payload, http_request_method, lambda request, payload: request.add_header(settings.REFERER, payload))
 
 """
 Check if target host is vulnerable. (Host-based injection)
 """
-def host_injection(url, vuln_parameter, payload, http_request_method):
-
-  def inject_host(url, vuln_parameter, payload, http_request_method):
-    # Check if defined POST data
-    if settings.USER_DEFINED_POST_DATA:
-      data = settings.USER_DEFINED_POST_DATA.encode(settings.DEFAULT_CODEC)
-    else:
-      data = None
-    request = _urllib.request.Request(url, data, method=http_request_method)
-    #Check if defined extra headers.
-    headers.do_check(request)
-    payload = checks.normalize_newlines(payload)
-    request.add_header(settings.HOST, payload)
-    try:
-      # check_http_traffic() already sends the request - reuse its result
-      # instead of sending the same request again.
-      response = headers.check_http_traffic(request)
-      if response is None:
-        if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
-          response = proxy.use_proxy(request)
-        else:
-          response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
-      return response
-    except ValueError:
-      pass
-
-  if settings.TIME_RELATED_ATTACK :
-    start = 0
-    end = 0
-    start = time.time()
-
-  try:
-    response = inject_host(url, vuln_parameter, payload, http_request_method)
-  except Exception as err_msg:
-    response = request_failed(err_msg)
-
-  if settings.TIME_RELATED_ATTACK :
-    end  = time.time()
-    exec_time = end - start
-    return exec_time
-  else:
-    return response
+def host_injection(url, payload, http_request_method):
+  return header_injection(url, payload, http_request_method, lambda request, payload: request.add_header(settings.HOST, payload))
 
 """
 Check if target host is vulnerable. (Custom header injection)
 """
-def custom_header_injection(url, vuln_parameter, payload, http_request_method):
-
-  def inject_custom_header(url, vuln_parameter, payload, http_request_method):
-    # Check if defined POST data
-    if settings.USER_DEFINED_POST_DATA:
-      data = settings.USER_DEFINED_POST_DATA.encode(settings.DEFAULT_CODEC)
-    else:
-      data = None
-    request = _urllib.request.Request(url, data, method=http_request_method)
-    #Check if defined extra headers.
-    headers.do_check(request)
-    payload = checks.normalize_newlines(payload)
-    request.add_header(settings.CUSTOM_HEADER_NAME, payload)
-    try:
-      # check_http_traffic() already sends the request - reuse its result
-      # instead of sending the same request again.
-      response = headers.check_http_traffic(request)
-      if response is None:
-        if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
-          response = proxy.use_proxy(request)
-        else:
-          response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
-      return response
-    except ValueError:
-      pass
-
-  if settings.TIME_RELATED_ATTACK :
-    start = 0
-    end = 0
-    start = time.time()
-
-  try:
-    response = inject_custom_header(url, vuln_parameter, payload, http_request_method)
-  except Exception as err_msg:
-    response = request_failed(err_msg)
-
-  if settings.TIME_RELATED_ATTACK :
-    end  = time.time()
-    exec_time = end - start
-    return exec_time
-  else:
-    return response
+def custom_header_injection(url, payload, http_request_method):
+  return header_injection(url, payload, http_request_method, lambda request, payload: request.add_header(settings.CUSTOM_HEADER_NAME, payload))
 
 """
 Detect the character encoding of the target web page.
@@ -830,8 +670,6 @@ def encoding_detection(response):
   try:
     # Read once
     content_bytes = response.read()
-    # A charset meta tag is always within the first 1024 bytes (same window
-    # browsers use for charset prescanning) - no need to decode/scan the rest.
     try:
       content_text = content_bytes[:1024].decode("utf-8", errors="ignore")
     except (Exception, SystemExit):
@@ -887,7 +725,7 @@ def encoding_detection(response):
       warn_msg = msg + charset + "', which is not recognized."
       settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
-  except Exception as e:
+  except Exception:
     pass
 
   if not charset_detected and settings.VERBOSITY_LEVEL != 0:
@@ -907,7 +745,6 @@ def application_identification(url, response=None):
   root, application_extension = splitext(_urllib.parse.urlparse(url).path)
   settings.TARGET_APPLICATION = application_extension[1:].upper()
 
-  # Extensionless URL - fall back to a header-based hint instead of giving up.
   if not settings.TARGET_APPLICATION and response is not None:
     x_powered_by = response.info().get(settings.X_POWERED_BY, "")
     match = re.search(r"PHP|ASP\.NET|JSP", x_powered_by, re.IGNORECASE)
@@ -964,7 +801,7 @@ def check_os(server_header):
           settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
           raise SystemExit()
       else:
-        identified_os = "Unix-like (" + settings.TARGET_OS + ")"
+        identified_os = "Unix-like" if settings.TARGET_OS.lower() == settings.OS.UNIX else settings.TARGET_OS
 
         if menu.options.os and user_defined_os == settings.OS.WINDOWS:
           if checks.identified_os():
@@ -992,7 +829,6 @@ def technology_identification(response):
       if settings.VERBOSITY_LEVEL != 0:
         debug_msg = "Target application technology detected as " + x_powered_by + "."
         settings.print_data_to_stdout(settings.print_bold_debug_msg(debug_msg))
-      # Run regardless of verbosity - this is a real OS-detection fallback, not just a log line.
       check_os(x_powered_by)
     elif settings.VERBOSITY_LEVEL != 0:
       warn_msg = "Failed to identify the technology supporting the target application."
@@ -1071,7 +907,7 @@ def perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_
   payload, prefix = parameters.prefixes(payload, prefix)
   payload, suffix = parameters.suffixes(payload, suffix)
   
-  payload = payload.replace(settings.SINGLE_WHITESPACE, whitespace)
+  payload = checks.tamper_outside_single_quotes(payload, lambda part: part.replace(settings.SINGLE_WHITESPACE, whitespace))
   payload = checks.perform_payload_modification(payload)
   
   # Check if defined "--verbose" option.
@@ -1083,27 +919,27 @@ def perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_
   if menu.options.cookie and settings.INJECT_TAG in menu.options.cookie or settings.COOKIE_INJECTION:
     if not vuln_parameter:
       vuln_parameter = parameters.specify_cookie_parameter(menu.options.cookie)
-    exec_time = cookie_injection(url, vuln_parameter, payload, http_request_method)
+    exec_time = cookie_injection(url, payload, http_request_method)
   # Check if defined custom header with "INJECT_HERE" tag
   elif settings.CUSTOM_HEADER_INJECTION:
     if not vuln_parameter:
       vuln_parameter = parameters.specify_custom_header_parameter("")
-    exec_time = custom_header_injection(url, vuln_parameter, payload, http_request_method)
+    exec_time = custom_header_injection(url, payload, http_request_method)
   # Check if defined user-agent with "INJECT_HERE" tag
   elif (menu.options.agent and settings.INJECT_TAG in menu.options.agent) or settings.USER_AGENT_INJECTION:
     if not vuln_parameter:
       vuln_parameter = parameters.specify_user_agent_parameter(settings.USER_AGENT.lower())
-    exec_time = user_agent_injection(url, vuln_parameter, payload, http_request_method)
+    exec_time = user_agent_injection(url, payload, http_request_method)
   # Check if defined referer with "INJECT_HERE" tag
   elif (menu.options.referer and settings.INJECT_TAG in menu.options.referer) or settings.REFERER_INJECTION:
     if not vuln_parameter:
       vuln_parameter = parameters.specify_referer_parameter(settings.REFERER.lower())
-    exec_time = referer_injection(url, vuln_parameter, payload, http_request_method)
+    exec_time = referer_injection(url, payload, http_request_method)
   # Check if defined host with "INJECT_HERE" tag
   elif (menu.options.host and settings.INJECT_TAG in menu.options.host) or settings.HOST_INJECTION:
     if not vuln_parameter:
       vuln_parameter = parameters.specify_host_parameter(settings.HOST.lower())
-    exec_time = host_injection(url, vuln_parameter, payload, http_request_method)
+    exec_time = host_injection(url, payload, http_request_method)
   else:
     exec_time, vuln_parameter = init_injection(payload, http_request_method, url)
 

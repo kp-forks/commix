@@ -14,7 +14,6 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 import os
-import sys
 import stat
 import random
 import shutil
@@ -22,12 +21,47 @@ import string
 import functools
 from src.utils import menu
 from src.utils import settings
-from src.thirdparty.colorama import Fore, Back, Style, init
 from src.thirdparty.six.moves import urllib as _urllib
 
 """
 Safely removes (purges) output directory. With -u, scoped to just that target's subdirectory.
 """
+
+"""
+Run one purge stage over the given paths, logging the debug message and
+returning True if any path in the stage failed.
+"""
+def _purge_stage(debug_msg, paths, action):
+  if settings.VERBOSITY_LEVEL != 0:
+    settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
+  failed = False
+  for path in paths:
+    try:
+      action(path)
+    except:
+      failed = True
+  return failed
+
+"""
+Random filename used when renaming files/directories to random values.
+"""
+def _random_name():
+  return "".join(random.sample(string.ascii_letters, random.randint(4, 8)))
+
+"""
+Overwrite a file's contents with random data of the same size.
+"""
+def _overwrite_with_random_data(path):
+  filesize = os.path.getsize(path)
+  with open(path, "w+b") as f:
+    f.write(os.urandom(filesize))
+
+"""
+Truncate a file to zero length.
+"""
+def _truncate_file(path):
+  with open(path, 'w'):
+    pass
 
 def purge():
   directory = settings.OUTPUT_DIR
@@ -35,7 +69,6 @@ def purge():
     host = _urllib.parse.urlparse(menu.options.url).netloc.replace(":", "_")
     if host:
       directory = os.path.join(directory, host)
-  # Absolute - the chdir below would otherwise break this relative path.
   directory = os.path.abspath(directory)
   if not os.path.isdir(directory):
     warn_msg = "Skipping purging of directory '" + directory + "', as it does not exist."
@@ -51,84 +84,30 @@ def purge():
     dir_paths.extend([os.path.abspath(os.path.join(rootpath, i)) for i in directories])
     file_paths.extend([os.path.abspath(os.path.join(rootpath, i)) for i in filenames])
 
-  # Changing file attributes.
-  if settings.VERBOSITY_LEVEL != 0:
-    debug_msg = "Changing file attributes."
-    settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-    
-  failed = False
-  for file_path in file_paths:
-    try:
-      os.chmod(file_path, stat.S_IREAD | stat.S_IWRITE)
-    except:
-      failed = True
-      pass
-
-  # Writing random data to files.
-  if settings.VERBOSITY_LEVEL != 0:
-    debug_msg = "Writing random data to files. "
-    settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-    
-  failed = False
-  for file_path in file_paths:
-    try:
-      filesize = os.path.getsize(file_path)
-      with open(file_path, "w+b") as f:
-        f.write(os.urandom(filesize))
-    except:
-      failed = True
-      pass
-
-  # Truncating files.
-  if settings.VERBOSITY_LEVEL != 0:
-    debug_msg = "Truncating files."
-    settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-    
-  failed = False
-  for file_path in file_paths:
-    try:
-      with open(file_path, 'w') as f:
-        pass
-    except:
-      failed = True
-      pass
-
-  # Renaming filenames to random values.
-  if settings.VERBOSITY_LEVEL != 0:
-    debug_msg = "Renaming filenames to random values."
-    settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-    
-  failed = False
-  for file_path in file_paths:
-    try:
-      os.rename(file_path, os.path.join(os.path.dirname(file_path), "".join(random.sample(string.ascii_letters, random.randint(4, 8)))))
-    except:
-      failed = True
-      pass
-
-  # Renaming directory names to random values.
-  if settings.VERBOSITY_LEVEL != 0:
-    debug_msg = "Renaming directory names to random values."
-    settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-    
-  failed = False
   dir_paths.sort(key=functools.cmp_to_key(lambda x, y: y.count(os.path.sep) - x.count(os.path.sep)))
-  for dir_path in dir_paths:
-    try:
-      os.rename(dir_path, os.path.join(os.path.dirname(dir_path), "".join(random.sample(string.ascii_letters, random.randint(4, 8)))))
-    except:
-      failed = True
-      pass
+
+  failed = _purge_stage("Changing file attributes.", file_paths,
+                         lambda p: os.chmod(p, stat.S_IREAD | stat.S_IWRITE))
+
+  failed |= _purge_stage("Writing random data to files.", file_paths, _overwrite_with_random_data)
+
+  failed |= _purge_stage("Truncating files.", file_paths, _truncate_file)
+
+  failed |= _purge_stage("Renaming filenames to random values.", file_paths,
+                          lambda p: os.rename(p, os.path.join(os.path.dirname(p), _random_name())))
+
+  failed |= _purge_stage("Renaming directory names to random values.", dir_paths,
+                          lambda p: os.rename(p, os.path.join(os.path.dirname(p), _random_name())))
 
   # Deleting the whole directory tree.
   if settings.VERBOSITY_LEVEL != 0:
     debug_msg = "Deleting the whole directory tree."
     settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
   try:
-    failed = False
     shutil.rmtree(directory)
-  except OSError as e:
+  except OSError:
     failed = True
+
   if failed:
     err_msg = "Problem occurred while removing directory '" + directory + "'."
     settings.print_data_to_stdout(settings.print_critical_msg(err_msg))

@@ -14,19 +14,20 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 import os
-import sys
-import time
-import base64
+try:
+  import concurrent.futures
+  _THREADS_SUPPORTED = True
+except ImportError:
+  # "concurrent.futures" needs Python 3.2+; fall back to serial on Python 2.
+  _THREADS_SUPPORTED = False
 from src.utils import menu
 from src.utils import settings
 from src.utils import session_handler
-from src.core.requests import proxy
 from src.core.requests import headers
 from src.core.requests import redirection
 from src.utils import common
 from src.core.injections.controller import checks
-from src.thirdparty.six.moves import input as _input
-from src.thirdparty.colorama import Fore, Back, Style, init
+from src.thirdparty.colorama import Style
 from src.thirdparty.six.moves import urllib as _urllib
 from src.thirdparty.six.moves import http_cookiejar as _http_cookiejar
 
@@ -54,8 +55,6 @@ def authentication_process(http_request_method):
     request = _urllib.request.Request(auth_url, auth_data.encode(settings.DEFAULT_CODEC), method=settings.HTTPMETHOD.POST)
     # Check if defined extra headers.
     headers.do_check(request)
-    # Must go through the cookie-jar opener installed above (not
-    # check_http_traffic()'s own opener), or the jar never gets filled.
     response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
     # HTTPCookieProcessor only fills the jar after the response is received.
     cookies = ""
@@ -107,6 +106,34 @@ def define_wordlists():
   return usernames, passwords
 
 """
+Try one (username, password) pair; True on success. Uses its own opener, not the global one.
+"""
+def _try_credentials(url, realm, http_request_method, authentication_type, username, password):
+  try:
+    if authentication_type.lower() == settings.AUTH_TYPE.BASIC:
+      authhandler = _urllib.request.HTTPBasicAuthHandler()
+    else:
+      authhandler = _urllib.request.HTTPDigestAuthHandler()
+    authhandler.add_password(realm, url, username, password)
+    request = _urllib.request.Request(url, method=http_request_method)
+    if menu.options.ignore_proxy:
+      opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({}), authhandler, redirection.RedirectHandler())
+    elif menu.options.tor:
+      opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({settings.SCHEME: menu.options.proxy}), authhandler, redirection.RedirectHandler())
+    else:
+      if menu.options.proxy:
+        request.set_proxy(menu.options.proxy, settings.SCHEME)
+      opener = _urllib.request.build_opener(authhandler, redirection.RedirectHandler())
+    headers.do_check(request)
+    response = opener.open(request, timeout=settings.TIMEOUT)
+    response.close()
+    return True
+  except KeyboardInterrupt:
+    raise
+  except (Exception, SystemExit):
+    return False
+
+"""
 Simple Basic / Digest HTTP authentication cracker.
 """
 def http_auth_cracker(url, realm, http_request_method):
@@ -119,70 +146,69 @@ def http_auth_cracker(url, realm, http_request_method):
       return False
     # Define the authentication wordlists for usernames / passwords.
     usernames, passwords = define_wordlists()
-    i = 1
-    found = False
-    total = len(usernames) * len(passwords)
-    for username in usernames:
-      for password in passwords:
-        float_percent = "{0:.1f}%".format(round(((i*100)/(total*1.0)),2))
-        # Check if verbose mode on
-        if settings.VERBOSITY_LEVEL != 0:
-          payload = "'" + username + ":" + password + "'"
-          if settings.VERBOSITY_LEVEL >= 2:
-            settings.print_data_to_stdout(settings.print_checking_msg(payload))
-          else:
-            settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_checking_msg(payload) + settings.SINGLE_WHITESPACE * len(payload))
-        try:
-          # Basic authentication
-          if authentication_type.lower() == settings.AUTH_TYPE.BASIC:
-            authhandler = _urllib.request.HTTPBasicAuthHandler()
-          # Digest authentication
-          elif authentication_type.lower() == settings.AUTH_TYPE.DIGEST:
-            authhandler = _urllib.request.HTTPDigestAuthHandler()
-          authhandler.add_password(realm, url, username, password)
-          opener = _urllib.request.build_opener(authhandler, redirection.RedirectHandler())
-          _urllib.request.install_opener(opener)
-          request = _urllib.request.Request(url, method=http_request_method)
-          headers.do_check(request)
-          # check_http_traffic() already sends the request - reuse its result
-          # instead of sending the same request again for every credential tried.
-          response = headers.check_http_traffic(request)
-          if response is None:
-            # Check if defined any HTTP Proxy (--proxy option).
-            if menu.options.proxy or menu.options.ignore_proxy or menu.options.tor:
-              response = proxy.use_proxy(request)
-            else:
-              response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
-          found = True
-        except KeyboardInterrupt :
-          raise
-        except (Exception, SystemExit):
-          # Don't abort the whole wordlist attack on one failed request.
-          pass
-        if found:
-          if settings.VERBOSITY_LEVEL == 0:
-            float_percent = settings.info_msg
+    pairs = [(u, p) for u in usernames for p in passwords]
+    total = len(pairs)
+    completed = 0
+    last_bucket = -1
+    found_pair = None
+
+    def report(username, password, succeeded):
+      nonlocal completed, last_bucket
+      completed += 1
+      if settings.VERBOSITY_LEVEL != 0:
+        payload = "'" + username + ":" + password + "'"
+        if settings.VERBOSITY_LEVEL >= 2:
+          settings.print_data_to_stdout(settings.print_checking_msg(payload))
         else:
-          if str(float_percent) == "100.0%":
-            if settings.VERBOSITY_LEVEL == 0:
-              float_percent = settings.FAIL_STATUS
-          else:
-            i = i + 1
-            float_percent = ".. (" + float_percent + ")"
-        if settings.VERBOSITY_LEVEL == 0:
-          info_msg = "Testing for valid HTTP authentication credentials."
-          info_msg += float_percent
-          settings.print_data_to_stdout((settings.END_LINE.CR * 2) + settings.print_info_msg(info_msg))
-          
-        if found:
-          if not settings.LOAD_SESSION:
-            session_handler.import_valid_credentials(url, authentication_type, url, username, password)
-          valid_pair =  "" + username + ":" + password + ""
-          if not settings.VERBOSITY_LEVEL >= 2:
-            settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-          info_msg = "Authentication succeeded using credentials: '" + valid_pair + "'."
-          settings.print_data_to_stdout(settings.print_info_msg(info_msg))
-          return valid_pair
+          settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_checking_msg(payload) + settings.SINGLE_WHITESPACE * len(payload))
+        return
+      # A "." per 4%-wide bucket, then " (done)" - same progress style as the injection techniques.
+      if not settings.PROGRESS_LINE_OPEN:
+        info_msg = "Testing for valid HTTP authentication credentials."
+        settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+      if succeeded or completed == total:
+        settings.print_data_to_stdout(" (done)")
+        return
+      bucket = int(((completed * 100) / total) // 4)
+      if bucket != last_bucket:
+        last_bucket = bucket
+        settings.print_data_to_stdout(".")
+
+    fan_out = settings.THREADS if (settings.THREADS > 1 and _THREADS_SUPPORTED) else 1
+    try:
+      if fan_out > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=fan_out) as executor:
+          for batch_start in range(0, total, fan_out):
+            if found_pair:
+              break
+            batch = pairs[batch_start:batch_start + fan_out]
+            future_to_pair = dict((executor.submit(_try_credentials, url, realm, http_request_method, authentication_type, u, p), (u, p)) for u, p in batch)
+            for future in concurrent.futures.as_completed(future_to_pair):
+              username, password = future_to_pair[future]
+              succeeded = future.result()
+              report(username, password, succeeded)
+              if succeeded and not found_pair:
+                found_pair = (username, password)
+      else:
+        for username, password in pairs:
+          succeeded = _try_credentials(url, realm, http_request_method, authentication_type, username, password)
+          report(username, password, succeeded)
+          if succeeded:
+            found_pair = (username, password)
+            break
+    except KeyboardInterrupt:
+      raise
+
+    if found_pair:
+      username, password = found_pair
+      if not settings.LOAD_SESSION:
+        session_handler.import_valid_credentials(url, authentication_type, url, username, password)
+      valid_pair = "" + username + ":" + password + ""
+      if not settings.VERBOSITY_LEVEL >= 2:
+        settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
+      info_msg = "Authentication succeeded using credentials: '" + valid_pair + "'."
+      settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+      return valid_pair
 
     err_msg = "Use the '--auth-cred' option to provide a valid pair of "
     err_msg += "HTTP authentication credentials (i.e --auth-cred=\"admin:admin\") "

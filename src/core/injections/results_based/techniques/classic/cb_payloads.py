@@ -14,6 +14,7 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 from src.utils import settings
+from src.core.injections.controller import checks
 
 """
 The classic injection technique on Classic OS Command Injection.
@@ -53,8 +54,7 @@ def decision(separator, TAG, randv1, randv2):
                 settings.CMD_SUB_PREFIX + "echo " + TAG + settings.CMD_SUB_SUFFIX  + TAG 
                 )
 
-    if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+    payload = checks.append_custom_marker(payload, separator)
 
   return payload
 
@@ -88,8 +88,7 @@ def decision_alter_interpreter(separator, TAG, randv1, randv2):
                 TAG + "')\""
                 )
 
-    if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+    payload = checks.append_custom_marker(payload, separator)
 
   return payload
 
@@ -118,8 +117,7 @@ def cmd_execution(separator, TAG, cmd):
               settings.CMD_SUB_PREFIX + "echo " + TAG + settings.CMD_SUB_SUFFIX  + TAG
               )
 
-    if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+    payload = checks.append_custom_marker(payload, separator)
 
   return payload
 
@@ -149,8 +147,7 @@ def cmd_execution_alter_interpreter(separator, TAG, cmd):
               TAG + "'%2B'" + TAG + "')\""
               )
 
-    if settings.CUSTOM_INJECTION_MARKER:
-      payload = payload + separator
+    payload = checks.append_custom_marker(payload, separator)
 
   return payload
 

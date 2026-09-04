@@ -23,8 +23,6 @@ from src.thirdparty.six.moves import http_client as _http_client
 # accept overly long result lines
 _http_client._MAXLINE = 1 * 1024 * 1024
 from socket import error as SocketError
-from os.path import splitext
-from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import urllib as _urllib
 from src.utils import menu
 from src.utils import logs
@@ -35,16 +33,14 @@ from src.utils import version
 from src.utils import install
 from src.utils import crawler
 from src.utils import settings
-from src.core.requests import parameters
 from src.utils import session_handler
-from src.thirdparty.colorama import Fore, Back, Style, init
+from src.thirdparty.colorama import init
 from src.core.testing import smoke_test
 from src.core.requests import tor
 from src.core.requests import proxy
 from src.core.requests import headers
 from src.core.requests import requests
 from src.core.requests import redirection
-from src.core.requests import authentication
 from src.core.injections.controller import checks
 from src.core.injections.controller import parser
 from src.core.injections.controller import controller
@@ -143,7 +139,6 @@ def examine_request(request, url):
     if settings.MULTI_TARGETS:
       settings.MAX_RETRIES = 1
   try:
-    # Reuse check_http_traffic()'s own fetch instead of requesting twice.
     response = headers.check_http_traffic(request)
     if response is not None:
       return response
@@ -203,7 +198,6 @@ def init_request(url, http_request_method):
     return request
 
   def redirect_probe_request(url, http_request_method):
-    # Redirect detection doesn't need the (possibly slow) POST body.
     request = _urllib.request.Request(url, method=http_request_method)
     headers.do_check(request)
     return request
@@ -229,10 +223,24 @@ def init_request(url, http_request_method):
     if settings.VERBOSITY_LEVEL != 0:
       debug_msg = "Creating " + str(settings.SCHEME).upper() + " requests opener object."
       settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
-    opener = _urllib.request.build_opener(redirection.RedirectHandler())
+    probe_handlers = [redirection.RedirectHandler()]
+    if menu.options.ignore_proxy:
+      probe_handlers.append(_urllib.request.ProxyHandler({}))
+    elif menu.options.proxy:
+      probe_handlers.append(_urllib.request.ProxyHandler({settings.SCHEME: menu.options.proxy}))
+    if menu.options.auth_cred and menu.options.auth_type and menu.options.auth_type.lower() == settings.AUTH_TYPE.DIGEST:
+      if settings.DIGEST_AUTH_REALM is None:
+        settings.DIGEST_AUTH_REALM = headers.discover_digest_realm(url)
+      digest_handler = _urllib.request.HTTPDigestAuthHandler()
+      username, _sep, password = menu.options.auth_cred.partition(":")
+      digest_handler.add_password(settings.DIGEST_AUTH_REALM, url, username, password)
+      probe_handlers.append(digest_handler)
+    opener = _urllib.request.build_opener(*probe_handlers)
     # Install globally so later bare urlopen() calls respect it too.
     _urllib.request.install_opener(opener)
     probe_request = redirect_probe_request(url, http_request_method)
+    if menu.options.proxy and not menu.options.tor and not menu.options.ignore_proxy:
+      probe_request.set_proxy(menu.options.proxy, settings.SCHEME)
     response = opener.open(probe_request, timeout=settings.TIMEOUT)
     if response.geturl() != url:
       redirect_url = response.geturl()
@@ -245,7 +253,7 @@ def init_request(url, http_request_method):
     requests.request_failed(err_msg)
 
   if redirect_url and redirect_url != url and settings.FOLLOW_REDIRECT:
-    redirect_url = redirection.do_check(probe_request, url, redirect_url, http_request_method)
+    redirect_url = redirection.do_check(url, redirect_url)
     if redirect_url is not None and settings.FOLLOW_REDIRECT:
       if _:
         url = redirect_url
@@ -280,12 +288,10 @@ def url_response(url, http_request_method):
   # Set early so WAF detection can persist the finding.
   settings.TARGET_URL = _urllib.parse.urlparse(url).hostname
   settings.TARGET_NETLOC = _urllib.parse.urlparse(url).netloc
-  # Cache clean-request timing to avoid repeating the measurement, resetting it first to prevent stale values.
   settings.INIT_CONNECTION_TIME = None
   settings.INIT_CONNECTION_FETCH_TIME = None
   settings.INIT_CONNECTION_URL = None
 
-  # Piggyback the WAF probe on the same request to avoid an extra round-trip.
   conn_request, conn_url = request, url
   do_waf = not menu.options.skip_waf
   if do_waf:
@@ -322,6 +328,13 @@ def init_injection(url):
   settings.SKIP_COMMAND_INJECTIONS = False
 
   # Reset injection checker and technique flags
+  settings.PENDING_FILE_CLEANUPS = {}
+  settings.CONFIRMED_INJECTION_POINTS = []
+  settings.ASKED_KEEP_TESTING = False
+  settings.PENDING_POST_DETECTION_ACTIONS = []
+  settings.OS_CMD_DONE = False
+  settings.PENDING_OS_SHELL_ENTRY = None
+  settings.LOGS_NOTIFICATION_SHOWN = False
   settings.INJECTION_CHECKER = False
   settings.CLASSIC_STATE = False
   settings.EVAL_BASED_STATE = False
@@ -336,6 +349,7 @@ def init_injection(url):
   settings.SKIP_NON_CUSTOM_PARAMS = None
   settings.CUSTOM_INJECTION_MARKER = None
   settings.CUSTOM_FILENAME = ""
+  settings.CONFIRMED_BOUNDARY = {}
 
   # Reset web-root state
   settings.WEB_ROOT = ""
@@ -343,14 +357,20 @@ def init_injection(url):
   settings.CUSTOM_WEB_ROOT = False
   if not settings.USER_APPLIED_WEB_ROOT:
     menu.options.web_root = False
-  
+
+  # Discovered auth (not CLI-supplied) shouldn't carry over to the next target.
+  if not settings.USER_APPLIED_AUTH_CRED:
+    menu.options.auth_cred = None
+  if not settings.USER_APPLIED_AUTH_TYPE:
+    menu.options.auth_type = None
+  settings.REQUIRED_AUTHENTICATION = False
+
 """
 Validate and normalize a target line, returning the cleaned URL or None.
 """
 def parse_target_line(line):
   match = re.search(r"\b(https?://[^\s'\"]+|[\w.]+\.\w{2,3}[/\w+]*\?[^\s'\"]+)", line, re.I)
   if match:
-    # Extract only the matched URL to avoid appending log prefixes or surrounding output.
     target = match.group(0)
     target = target.replace(settings.SINGLE_WHITESPACE, _urllib.parse.quote_plus(settings.SINGLE_WHITESPACE)).strip()
     return target.rstrip()
@@ -367,7 +387,6 @@ def stdin_parsing_target(os_checks_num):
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
   menu.options.batch = True
   settings.MULTI_TARGETS = True
-  # Read stdin line-by-line as it arrives instead of relying on the iterator's read-ahead buffering.
   for url in iter(sys.stdin.readline, ""):
     target = parse_target_line(url)
     if target:
@@ -397,6 +416,15 @@ def check_for_injected_url(url):
   return _
 
 """
+Ask whether to skip further tests against a host where an injection point was already found.
+"""
+def prompt_skip_vulnerable_host(target_url):
+  if settings.SKIP_VULNERABLE_HOST is None:
+    message = "An injection point has already been detected against '" + _urllib.parse.urlparse(target_url).netloc + "'. "
+    message += "Do you want to skip further tests involving it? [Y/n] "
+    common.prompt_yes_no_setting(message, "SKIP_VULNERABLE_HOST", default="Y")
+
+"""
 Check if value is inside boundaries
 """
 def check_value_inside_boundaries(url, http_request_method):
@@ -409,7 +437,6 @@ The main function.
 """
 def main(filename, url, http_request_method):
   try:
-    # Reset per-target state so file access isn't silently skipped for later targets.
     settings.FILE_ACCESS_DONE = False
 
     if menu.options.alert:
@@ -434,7 +461,7 @@ def main(filename, url, http_request_method):
       settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
     if menu.options.flush_session:
-      session_handler.flush(url)
+      session_handler.flush()
 
     url = check_value_inside_boundaries(url, http_request_method)
 
@@ -450,34 +477,25 @@ def main(filename, url, http_request_method):
     if menu.options.level and settings.INJECTION_LEVEL >= settings.DEFAULT_INJECTION_LEVEL:
         settings.USER_APPLIED_LEVEL = settings.INJECTION_LEVEL
 
+    # -p naming a header/cookie needs a higher level than the default - bump it automatically.
+    if not menu.options.level and menu.options.test_parameter:
+      test_names = [p.split("=")[0].strip().lower() for p in menu.options.test_parameter.split(settings.PARAMETER_SPLITTING_REGEX)]
+      raw_headers = menu.options.headers or menu.options.header
+      custom_header_names = [h.split(":", 1)[0].strip().lower() for h in raw_headers.split(settings.END_LINE.ESCAPED_LF) if ":" in h] if raw_headers else []
+      if any(name in ("user-agent", "referer", "host") for name in test_names) or any(name in custom_header_names for name in test_names):
+        settings.INJECTION_LEVEL = settings.USER_APPLIED_LEVEL = settings.HTTP_HEADER_INJECTION_LEVEL
+      elif "cookie" in test_names:
+        settings.INJECTION_LEVEL = settings.USER_APPLIED_LEVEL = settings.COOKIE_INJECTION_LEVEL
+
     if not settings.USER_APPLIED_LEVEL :
       settings.INJECTION_LEVEL = settings.USER_APPLIED_LEVEL = session_handler.applied_levels(url, http_request_method)
 
     # Define the level of tests to perform.
-    if settings.INJECTION_LEVEL == settings.DEFAULT_INJECTION_LEVEL:
-      settings.SEPARATORS = sorted(set(settings.SEPARATORS_LVL1), key=settings.SEPARATORS_LVL1.index)
-      settings.PREFIXES = sorted(set(settings.PREFIXES_LVL1), key=settings.PREFIXES_LVL1.index)
-      settings.SUFFIXES = sorted(set(settings.SUFFIXES_LVL1), key=settings.SUFFIXES_LVL1.index)
-      settings.EVAL_PREFIXES = sorted(set(settings.EVAL_PREFIXES_LVL1), key=settings.EVAL_PREFIXES_LVL1.index)
-      settings.EVAL_SUFFIXES = sorted(set(settings.EVAL_SUFFIXES_LVL1), key=settings.EVAL_SUFFIXES_LVL1.index)
-      settings.EVAL_SEPARATORS = sorted(set(settings.EVAL_SEPARATORS_LVL1), key=settings.EVAL_SEPARATORS_LVL1.index)
-      settings.EXECUTION_FUNCTIONS = sorted(set(settings.EXECUTION_FUNCTIONS_LVL1), key=settings.EXECUTION_FUNCTIONS_LVL1.index)
-    elif settings.INJECTION_LEVEL == settings.COOKIE_INJECTION_LEVEL:
-      settings.SEPARATORS = sorted(set(settings.SEPARATORS_LVL2), key=settings.SEPARATORS_LVL2.index)
-      settings.PREFIXES = sorted(set(settings.PREFIXES_LVL2), key=settings.PREFIXES_LVL2.index)
-      settings.SUFFIXES = sorted(set(settings.SUFFIXES_LVL2), key=settings.SUFFIXES_LVL2.index)
-      settings.EVAL_PREFIXES = sorted(set(settings.EVAL_PREFIXES_LVL2), key=settings.EVAL_PREFIXES_LVL2.index)
-      settings.EVAL_SUFFIXES = sorted(set(settings.EVAL_SUFFIXES_LVL2), key=settings.EVAL_SUFFIXES_LVL2.index)
-      settings.EVAL_SEPARATORS = sorted(set(settings.EVAL_SEPARATORS_LVL2), key=settings.EVAL_SEPARATORS_LVL2.index)
-      settings.EXECUTION_FUNCTIONS = sorted(set(settings.EXECUTION_FUNCTIONS_LVL2), key=settings.EXECUTION_FUNCTIONS_LVL2.index)
-    elif settings.INJECTION_LEVEL == settings.HTTP_HEADER_INJECTION_LEVEL:
-      settings.SEPARATORS = sorted(set(settings.SEPARATORS_LVL3), key=settings.SEPARATORS_LVL3.index)
-      settings.PREFIXES = sorted(set(settings.PREFIXES_LVL3), key=settings.PREFIXES_LVL3.index)
-      settings.SUFFIXES = sorted(set(settings.SUFFIXES_LVL3), key=settings.SUFFIXES_LVL3.index)
-      settings.EVAL_PREFIXES = sorted(set(settings.EVAL_PREFIXES_LVL3), key=settings.EVAL_PREFIXES_LVL3.index)
-      settings.EVAL_SUFFIXES = sorted(set(settings.EVAL_SUFFIXES_LVL3), key=settings.EVAL_SUFFIXES_LVL3.index)
-      settings.EVAL_SEPARATORS = sorted(set(settings.EVAL_SEPARATORS_LVL3), key=settings.EVAL_SEPARATORS_LVL3.index)
-      settings.EXECUTION_FUNCTIONS = sorted(set(settings.EXECUTION_FUNCTIONS_LVL3), key=settings.EXECUTION_FUNCTIONS_LVL3.index)
+    _level_suffix = {settings.DEFAULT_INJECTION_LEVEL: "LVL1", settings.COOKIE_INJECTION_LEVEL: "LVL2", settings.HTTP_HEADER_INJECTION_LEVEL: "LVL3"}.get(settings.INJECTION_LEVEL)
+    if _level_suffix:
+      for _name in ("SEPARATORS", "PREFIXES", "SUFFIXES", "EVAL_PREFIXES", "EVAL_SUFFIXES", "EVAL_SEPARATORS", "EXECUTION_FUNCTIONS"):
+        _source = getattr(settings, _name + "_" + _level_suffix)
+        setattr(settings, _name, sorted(set(_source), key=_source.index))
 
     else:
       err_msg = "The value for option '--level' "
@@ -486,17 +504,17 @@ def main(filename, url, http_request_method):
       raise SystemExit()
 
     if menu.options.test_parameter and menu.options.skip_parameter:
-      if type(menu.options.test_parameter) is bool:
-        menu.options.test_parameter = None
-      else:
+      test_names = {p.split("=")[0] for p in menu.options.test_parameter.split(settings.PARAMETER_SPLITTING_REGEX)}
+      skip_names = {p.split("=")[0] for p in menu.options.skip_parameter.split(settings.PARAMETER_SPLITTING_REGEX)}
+      if test_names & skip_names:
         err_msg = "The options '-p' and '--skip' cannot be used "
-        err_msg += "simultaneously (i.e. only one option must be set)."
+        err_msg += "simultaneously for the same parameter(s)."
         settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
         raise SystemExit()
 
     if menu.options.ignore_session:
       # Ignore session
-      session_handler.ignore(url)
+      session_handler.ignore()
 
     # Check provided parameters for tests
     checks.check_provided_parameters()
@@ -1036,6 +1054,9 @@ try:
         filename = logs.logs_filename_creation(url)
         session_handler.restore_waf_status(url)
         main(filename, url, http_request_method)
+      else:
+        err_msg = "Unable to establish a connection with the target URL."
+        settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
 
     else:
       output_href = []
@@ -1120,8 +1141,6 @@ try:
         if len(output_href) != 0:
           if filename is not None:
             filename = crawler.store_crawling(output_href)
-          info_msg = "Found a total of " + str(len(clean_output_href)) + " target"+ "s"[len(clean_output_href) == 1:] + "."
-          settings.print_data_to_stdout(settings.print_info_msg(info_msg))
         total_href = len(clean_output_href)
 
       # Removing duplicates from the identified (crawled) forms (order-preserving, O(n)).
@@ -1131,8 +1150,15 @@ try:
         if x not in seen_forms:
           seen_forms.add(x)
           clean_output_forms.append(x)
+
+      # Merge target/form counts into one message (total_href is None in lazy stdin mode).
+      summary_parts = []
+      if total_href:
+        summary_parts.append(str(total_href) + " target" + "s"[total_href == 1:])
       if len(clean_output_forms) != 0:
-        info_msg = "Found a total of " + str(len(clean_output_forms)) + " form" + "s"[len(clean_output_forms) == 1:] + "."
+        summary_parts.append(str(len(clean_output_forms)) + " form" + "s"[len(clean_output_forms) == 1:])
+      if summary_parts:
+        info_msg = "Found a total of " + " and ".join(summary_parts) + "."
         settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
       # Test crawled POST forms first; their method/data are handled separately.
@@ -1141,22 +1167,7 @@ try:
       orig_user_defined_post_data = settings.USER_DEFINED_POST_DATA
       for form_url, form_data in clean_output_forms:
         if check_for_injected_url(form_url):
-          if settings.SKIP_VULNERABLE_HOST is None:
-            while True:
-              message = "An injection point has already been detected against '" + _urllib.parse.urlparse(form_url).netloc + "'. "
-              message += "Do you want to skip further tests involving it? [Y/n] "
-              skip_host = common.read_input(message, default="Y", check_batch=True)
-              if skip_host in settings.CHOICE_YES:
-                settings.SKIP_VULNERABLE_HOST = True
-                break
-              elif skip_host in settings.CHOICE_NO:
-                settings.SKIP_VULNERABLE_HOST = False
-                break
-              elif skip_host in settings.CHOICE_QUIT:
-                raise SystemExit()
-              else:
-                common.invalid_option(skip_host)
-                pass
+          prompt_skip_vulnerable_host(form_url)
 
         if settings.SKIP_VULNERABLE_HOST:
           form_num += 1
@@ -1237,22 +1248,7 @@ try:
       href_count_suffix = ("/" + str(total_href)) if total_href is not None else ""
       for url, is_last_href in with_is_last(clean_output_href):
         if check_for_injected_url(url):
-          if settings.SKIP_VULNERABLE_HOST is None:
-            while True:
-              message = "An injection point has already been detected against '" + _urllib.parse.urlparse(url).netloc + "'. "
-              message += "Do you want to skip further tests involving it? [Y/n] "
-              skip_host = common.read_input(message, default="Y", check_batch=True)
-              if skip_host in settings.CHOICE_YES:
-                settings.SKIP_VULNERABLE_HOST = True
-                break
-              elif skip_host in settings.CHOICE_NO:
-                settings.SKIP_VULNERABLE_HOST = False
-                break
-              elif skip_host in settings.CHOICE_QUIT:
-                raise SystemExit()
-              else:
-                common.invalid_option(skip_host)
-                pass
+          prompt_skip_vulnerable_host(url)
 
           if settings.SKIP_VULNERABLE_HOST:
             url_num += 1

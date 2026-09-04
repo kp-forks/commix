@@ -15,7 +15,6 @@ For more see the file 'readme/COPYING' for copying permission.
 
 import os
 import re
-import sys
 import time
 import base64
 import sqlite3
@@ -23,11 +22,8 @@ import hashlib
 import contextlib
 from src.utils import menu
 from src.utils import settings
-from src.utils import common
 from src.core.injections.controller import checks
-from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import urllib as _urllib
-from src.thirdparty.colorama import Fore, Back, Style, init
 
 """
 Open the session DB and always close it; retry after recreating a deleted directory.
@@ -68,6 +64,12 @@ def escape_like(value):
   return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
 """
+Check whether the given table exists in the session database.
+"""
+def table_exists(conn, table):
+  return conn.execute("SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';", (table,)).fetchone() is not None
+
+"""
 Return SHA1 hash of the given text (UTF-8 encoded).
 Used for obfuscating hostnames in SQLite table names.
 """
@@ -82,7 +84,9 @@ def technique_letter(technique_info):
     return technique_info.split()[2][0]
   if technique_info == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
     return settings.INJECTION_TECHNIQUE.FILE_BASED[0]
-  return technique_info[0]
+  if technique_info in (settings.INJECTION_TECHNIQUE.CLASSIC, settings.INJECTION_TECHNIQUE.TIME_BASED, settings.INJECTION_TECHNIQUE.FILE_BASED):
+    return technique_info[0]
+  return None
 
 """
 Extract the host from a full URL string.
@@ -108,7 +112,7 @@ def table_name(url):
 Handle the scenario where the user requests to ignore any stored session data.
 Logs debug or warning messages depending on session file presence.
 """
-def ignore(url):
+def ignore():
   if os.path.isfile(settings.SESSION_FILE):
     if settings.VERBOSITY_LEVEL != 0:
       debug_msg = "Ignoring the stored session from the session file due to '--ignore-session' switch."
@@ -122,7 +126,7 @@ def ignore(url):
 Remove all stored session data by dropping every table in the session database file.
 Logs progress and errors appropriately.
 """
-def flush(url):
+def flush():
   if os.path.isfile(settings.SESSION_FILE):
     if settings.VERBOSITY_LEVEL != 0:
       debug_msg = "Flushing the stored session from the session file."
@@ -155,8 +159,7 @@ def clear(url):
       if conn.execute("SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';", (table,)).fetchone() is None:
         return
 
-      # Query to get the smallest (earliest) id for each unique combination of url and technique
-      query = "SELECT MIN(id) FROM \"" + table + "\" GROUP BY url, technique;"
+      query = "SELECT MIN(id) FROM \"" + table + "\" GROUP BY url, technique, vuln_parameter, http_header;"
       cursor = conn.execute(query)
 
       # Collect the ids to keep as strings
@@ -197,7 +200,7 @@ def import_injection_points(url, technique, injection_type, filename, separator,
                    "shell VARCHAR, vuln_parameter VARCHAR, prefix VARCHAR, suffix VARCHAR, "
                    "TAG VARCHAR, interpreter VARCHAR, payload VARCHAR, http_header VARCHAR, http_request_method VARCHAR, url_time_response INTEGER, "
                    "timesec INTEGER, exec_time INTEGER, output_length INTEGER, is_vulnerable VARCHAR, data VARCHAR, cookie VARCHAR, tamper VARCHAR, "
-                   "target_os VARCHAR);")
+                   "target_os VARCHAR, file_deleted VARCHAR DEFAULT '');")
 
       # Check if an exact matching record already exists to avoid duplicates
       query_check = ("SELECT 1 FROM \"" + table + "\" WHERE url = ? AND technique = ? AND injection_type = ? AND separator = ? AND "
@@ -211,8 +214,6 @@ def import_injection_points(url, technique, injection_type, filename, separator,
                 int(output_length), str(is_vulnerable), str(menu.options.data), str(menu.options.cookie),
                 str(menu.options.tamper or ""), str(settings.TARGET_OS))
 
-      # URL-encode base64 padding within the url field only, so it isn't
-      # mistaken for part of the URL structure itself.
       if settings.BASE64_PADDING in params[0]:
         params = (params[0].replace(settings.BASE64_PADDING, _urllib.parse.quote(settings.BASE64_PADDING)),) + params[1:]
 
@@ -232,12 +233,51 @@ def import_injection_points(url, technique, injection_type, filename, separator,
 
   except sqlite3.OperationalError as err_msg:
     err_msg = str(err_msg)[:1].upper() + str(err_msg)[1:] + "."
-    err_msg += " Rerun with switch '--flush-session'."
+    err_msg += " Re-run with switch '--flush-session'."
     settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
-    checks.quit(filename, url, _=False)
+    checks.quit(filename, url, hard_exit=False)
 
   except sqlite3.DatabaseError:
     checks.error_loading_session_file()
+
+"""
+All stored shellshock findings for this URL, one (header, payload) pair per header - resumes everything at once, mirroring the core engine's LOAD_SESSION behavior instead of the technique-letter-keyed model the other 4 techniques use.
+"""
+def get_all_stored_shellshock(url, http_request_method):
+  found = []
+  if menu.options.ignore_session or menu.options.flush_session:
+    return found
+  try:
+    table = table_name(url) + "_ip"
+    with _session_connection() as conn:
+      if not table_exists(conn, table):
+        return found
+      like_url = "%" + escape_like(split_url(url)) + "%"
+      query = ("SELECT http_header, payload FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND "
+               "technique = ? AND http_request_method = ?;")
+      cursor = conn.execute(query, (like_url, "shellshock injection technique", http_request_method))
+      found = [(row[0], row[1]) for row in cursor.fetchall()]
+    return found
+  except Exception:
+    return found
+
+"""
+Whether this URL already has any stored shellshock finding, regardless of header - skips re-asking to test for it.
+"""
+def has_stored_shellshock(url):
+  if menu.options.ignore_session or menu.options.flush_session:
+    return False
+  try:
+    table = table_name(url) + "_ip"
+    with _session_connection() as conn:
+      if not table_exists(conn, table):
+        return False
+      like_url = "%" + escape_like(split_url(url)) + "%"
+      query = "SELECT 1 FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND technique = ? LIMIT 1;"
+      cursor = conn.execute(query, (like_url, "shellshock injection technique"))
+      return cursor.fetchone() is not None
+  except Exception:
+    return False
 
 """
 Retrieve a summary string of all unique injection techniques that have been successfully applied
@@ -248,19 +288,16 @@ def applied_techniques(url, http_request_method):
   try:
     with _session_connection() as conn:
       table = table_name(url) + "_ip"
-      query = "SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';"
-      result = conn.execute(query, (table,)).fetchone()
-      if result:
+      if table_exists(conn, table):
         query = "SELECT technique FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\';"
         cursor = conn.execute(query, ("%" + escape_like(split_url(url)) + "%",)).fetchall()
         for session in cursor:
           technique_info = session[0]
-          techniques.append(technique_letter(technique_info))
+          letter = technique_letter(technique_info)
+          if letter:
+            techniques.append(letter)
         techniques = list(set(techniques))
         techniques = "".join(str(x) for x in techniques)
-    return techniques
-  except sqlite3.OperationalError:
-    settings.LOAD_SESSION = None
     return techniques
   except Exception:
     settings.LOAD_SESSION = None
@@ -276,9 +313,7 @@ def applied_levels(url, http_request_method):
   try:
     with _session_connection() as conn:
       table = table_name(url) + "_ip"
-      query = "SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';"
-      result = conn.execute(query, (table,)).fetchone()
-      if result:
+      if table_exists(conn, table):
         query = "SELECT http_header, is_vulnerable FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\';"
         cursor = conn.execute(query, ("%" + escape_like(split_url(url)) + "%",)).fetchall()
         for session in cursor:
@@ -289,9 +324,6 @@ def applied_levels(url, http_request_method):
         level = settings.COOKIE_INJECTION_LEVEL
       else:
         level = settings.HTTP_HEADER_INJECTION_LEVEL
-    return level
-  except sqlite3.OperationalError:
-    settings.LOAD_SESSION = None
     return level
   except Exception:
     settings.LOAD_SESSION = None
@@ -320,14 +352,13 @@ def has_any_stored_technique(url, http_request_method):
   try:
     with _session_connection(session_file) as conn:
       table = table_name(url) + "_ip"
-      cursor = conn.cursor()
-      cursor.execute("SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';", (table,))
-      if not cursor.fetchall():
+      if not table_exists(conn, table):
         return False
+      cursor = conn.cursor()
       like_url = "%" + escape_like(split_url(url)) + "%"
       query = "SELECT technique FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND http_request_method = ?;"
       cursor.execute(query, (like_url, http_request_method))
-      return any(not menu.options.tech or technique_letter(row[0]) in menu.options.tech for row in cursor.fetchall())
+      return any(not menu.options.tech or (technique_letter(row[0]) and technique_letter(row[0]) in menu.options.tech) for row in cursor.fetchall())
   except (sqlite3.OperationalError, sqlite3.DatabaseError):
     return False
 
@@ -346,13 +377,12 @@ def check_stored_injection_points(url, check_parameter, http_request_method):
       raise ValueError("Unsafe table name")
 
     with _session_connection() as conn:
-      cursor = conn.cursor()
-
       # Check if the table exists
-      cursor.execute("SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';", (table,))
-      if not cursor.fetchall():
+      if not table_exists(conn, table):
         settings.LOAD_SESSION = None
         return url, check_parameter
+
+      cursor = conn.cursor()
 
       # Fetch stored sessions for matching URL
       like_url = "%" + escape_like(split_url(url)) + "%"
@@ -372,7 +402,7 @@ def check_stored_injection_points(url, check_parameter, http_request_method):
 
         technique = technique_letter(technique_info)
 
-        if len(menu.options.tech) == 0 or technique in menu.options.tech:
+        if len(menu.options.tech) == 0 or (technique and technique in menu.options.tech):
           found = True
           # Prefer more specific vulnerable parameter (e.g., HTTP header), if available
           vuln_parameter = vuln_param or http_header
@@ -394,9 +424,6 @@ def check_stored_injection_points(url, check_parameter, http_request_method):
     settings.LOAD_SESSION = False
     return url, check_parameter
 
-  except sqlite3.OperationalError:
-    settings.LOAD_SESSION = None
-    return url, check_parameter
   except Exception:
     settings.LOAD_SESSION = None
     return url, check_parameter
@@ -410,11 +437,10 @@ def load_stored_techniques(url, check_parameter, http_request_method):
   try:
     with _session_connection() as conn:
       table = table_name(url) + "_ip"
-      cursor = conn.cursor()
-      cursor.execute("SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';", (table,))
-      if not cursor.fetchall():
+      if not table_exists(conn, table):
         return stored
 
+      cursor = conn.cursor()
       like_url = "%" + escape_like(split_url(url)) + "%"
       query = "SELECT * FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND http_request_method = ?;"
       cursor.execute(query, (like_url, http_request_method))
@@ -422,12 +448,10 @@ def load_stored_techniques(url, check_parameter, http_request_method):
       for session in cursor.fetchall():
         row = session[1:]
         technique, vuln_parameter, http_header = row[1], row[5], row[11]
-        if check_parameter not in (vuln_parameter, http_header):
+        if check_parameter not in (vuln_parameter, http_header) or not technique_letter(technique):
           continue
         stored[technique] = row
-    return stored
-  except sqlite3.OperationalError:
-    return stored
+    return {_: stored[_] for _ in settings.TECHNIQUE_ORDER if _ in stored}
   except Exception:
     return stored
 
@@ -471,6 +495,41 @@ def apply_stored_technique(row):
           TAG, interpreter, payload, http_request_method, url_time_response, timesec,
           exec_time, output_length, is_vulnerable)
 
+"""
+Check whether the output file for a stored technique has already been deleted from the target.
+"""
+def check_file_deleted(url, technique, vuln_parameter, http_request_method):
+  try:
+    with _session_connection() as conn:
+      table = table_name(url) + "_ip"
+      if not table_exists(conn, table):
+        return False
+      cursor = conn.cursor()
+      like_url = "%" + escape_like(split_url(url)) + "%"
+      query = ("SELECT file_deleted FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND technique = ? AND "
+               "(vuln_parameter = ? OR http_header = ?) AND http_request_method = ? LIMIT 1;")
+      cursor.execute(query, (like_url, technique, vuln_parameter, vuln_parameter, http_request_method))
+      row = cursor.fetchone()
+      return bool(row and row[0])
+  except Exception:
+    return False
+
+"""
+Persist that the output file for a stored technique has been deleted from the target.
+"""
+def mark_file_deleted(url, technique, vuln_parameter, http_request_method):
+  try:
+    with _session_connection() as conn:
+      table = table_name(url) + "_ip"
+      if not table_exists(conn, table):
+        return
+      like_url = "%" + escape_like(split_url(url)) + "%"
+      conn.execute("UPDATE \"" + table + "\" SET file_deleted = '1' WHERE url LIKE ? ESCAPE '\\' AND technique = ? AND "
+                   "(vuln_parameter = ? OR http_header = ?) AND http_request_method = ?;",
+                   (like_url, technique, vuln_parameter, vuln_parameter, http_request_method))
+      conn.commit()
+  except Exception:
+    pass
 
 """
 Store the output of a successfully executed command for a given URL and vulnerable parameter in the session database.
@@ -539,8 +598,7 @@ def check_stored_waf_status(url):
   try:
     with _session_connection() as conn:
       table = table_name(url) + "_waf"
-      query = "SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';"
-      if not conn.execute(query, (table,)).fetchone():
+      if not table_exists(conn, table):
         return None
       row = conn.execute("SELECT waf_enabled FROM \"" + table + "\" LIMIT 1;").fetchone()
       return row[0] == "True" if row else None
@@ -580,8 +638,7 @@ def check_stored_testable_value(url, vuln_parameter, http_request_method):
   try:
     with _session_connection() as conn:
       table = table_name(url) + "_tv"
-      query = "SELECT name FROM sqlite_master WHERE name = ? AND type = 'table';"
-      if not conn.execute(query, (table,)).fetchone():
+      if not table_exists(conn, table):
         return None
       row = conn.execute("SELECT placeholder FROM \"" + table + "\" WHERE vuln_parameter = ? AND http_request_method = ?;", (vuln_parameter, http_request_method)).fetchone()
       return row[0] if row else None
@@ -624,8 +681,6 @@ def import_valid_credentials(url, authentication_type, admin_panel, username, pa
       conn.execute("CREATE TABLE IF NOT EXISTS \"" + table + "\" "
                    "(id INTEGER PRIMARY KEY, url VARCHAR, authentication_type VARCHAR, admin_panel VARCHAR, "
                    "username VARCHAR, password VARCHAR);")
-      # Skip the insert if this exact credential is already stored, so repeated
-      # runs against the same target don't keep piling up identical rows.
       cursor = conn.execute("SELECT 1 FROM \"" + table + "\" WHERE url = ? AND authentication_type = ? AND "
                              "admin_panel = ? AND username = ? AND password = ? LIMIT 1;",
                              (url, authentication_type, admin_panel, username, password))

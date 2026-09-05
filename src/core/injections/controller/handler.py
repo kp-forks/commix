@@ -164,7 +164,7 @@ def pseudo_terminal_shell_generic(url, filename, technique, no_result, execute_c
             if len(cmd) == 0:
               cmd = "use os_shell"
             cmd = checks.escaped_cmd(cmd)
-            if cmd.lower() in settings.SHELL_OPTIONS or cmd.lower().split(" ", 1)[0] == "use":
+            if cmd.lower() in settings.SHELL_OPTIONS or cmd.lower().split(" ", 1)[0] in ("use", "download", "upload"):
               if cmd.lower() == "quit" or cmd.lower() == "exit":
                 cleanup()
               go_back, go_back_again = shell_options.check_option_generic(execute_cmd, cmd, go_back, go_back_again, filename, url, separator)

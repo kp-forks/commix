@@ -1,4 +1,5 @@
 ## Version 4.2 (TBA)
+* Added: New `download` and `upload` commands in the `os_shell` mode, to transfer files during shell interaction.
 * Added: New `--report-json` switch to store run results to a JSON file.
 * Added: New `--abort-on-empty` switch to abort data retrieval on empty results.
 * Revised: Renamed `--alter-shell` to `--interpreter` for clarity.
@@ -15,7 +16,7 @@
 * Revised: Improved `--alter-shell` character extraction to bisect instead of scan linearly.
 * Added: Dynamic parameter detection to identify parameters whose values change between requests.
 * Fixed: Time-related techniques persist the skip-testable-value optimization across resumed sessions.
-* Fixed: Benign patterns like 'Accept: */*' are no longer misdetected as a custom injection marker.
+* Fixed: Benign patterns like `Accept: */*` are no longer misdetected as a custom injection marker.
 * Fixed: Refactored `--disable-coloring` switch to reliably strip ANSI color codes from output.
 * Revised: Improved `--time-limit` to reliably abort the scan at the configured limit.
 * Fixed: Improved login authentication to correctly capture cookies and submit via POST.

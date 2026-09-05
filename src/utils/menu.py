@@ -15,6 +15,7 @@ For more see the file 'readme/COPYING' for copying permission.
 
 import os
 import sys
+import glob
 from src.utils import settings
 from optparse import OptionGroup
 from optparse import OptionParser
@@ -723,6 +724,8 @@ COMMON_OPTIONS = (
 
 OS_SHELL_OPTIONS = COMMON_OPTIONS + (
     (("<command>",), "execute it as an OS command on the target host"),
+    (("download",), "download a file from the target host (download <remote> <local>)"),
+    (("upload",), "upload a file to the target host (upload <local> <remote>)"),
     (("use reverse_tcp",), "Switch to the reverse TCP mode"),
     (("use bind_tcp",), "Switch to the bind TCP mode"),
 )
@@ -917,6 +920,13 @@ def tab_completer(text, state):
         available_options = [option.upper() for option in settings.SET_OPTIONS if option.upper().startswith(text.upper())]
         if "payload".startswith(text.lower()):
             available_options.append("payload")
+
+    # Only one side of a transfer is local: the source of "upload", the destination of "download".
+    elif line.startswith("upload ") or line.startswith("download "):
+        local_arg = 1 if line.startswith("upload ") else 2
+        available_options = []
+        if len(line.split(" ")) - 1 == local_arg:
+            available_options = [path + ("/" if os.path.isdir(path) else "") for path in glob.glob(text + "*")]
 
     # Right after "use ", complete "os_shell"/"bind_tcp"/"reverse_tcp".
     elif line.startswith("use "):

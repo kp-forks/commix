@@ -306,6 +306,15 @@ def check_option_generic(execute_cmd, cmd, go_back, go_back_again, filename, url
       go_back_again = True
     return go_back, go_back_again
 
+  # The original "cmd" is used for the paths - "os_shell_option" is lowercased.
+  elif os_shell_option and os_shell_option.split(" ", 1)[0] == "download":
+    checks.shell_download(execute_cmd, cmd, filename)
+    return go_back, go_back_again
+
+  elif os_shell_option and os_shell_option.split(" ", 1)[0] == "upload":
+    checks.shell_upload(execute_cmd, cmd)
+    return go_back, go_back_again
+
   # Bare mode names no longer switch mode - "use <mode>" does (see below).
   elif os_shell_option in ("os_shell", "reverse_tcp", "bind_tcp"):
     err_msg = "Type 'use " + os_shell_option + "' to switch to that mode."

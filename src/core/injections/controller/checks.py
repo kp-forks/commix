@@ -1660,10 +1660,6 @@ def time_related_shell(url_time_response, exec_time, timesec):
   lower_limit = current_delay_threshold()
   delayed = exec_time >= lower_limit if lower_limit is not None else exec_time >= timesec
 
-  if delayed and settings.EXPLOITATION_PHASE and settings.ADJUST_TIME_DELAY_CHOICE is None:
-    msg = "Do you want commix to try to optimize the value(s) for delay responses (option '--time-sec')? [Y/n] "
-    settings.ADJUST_TIME_DELAY_CHOICE = common.read_input(msg, default="Y", check_batch=True) in settings.CHOICE_YES
-
   return delayed
 
 """
@@ -3013,7 +3009,11 @@ def check_file_to_write(file_to_write=None, dest=None):
 Display the result of an attempted file write to the remote target.
 """
 def file_write_status(shell, dest_to_write):
-  if shell:
+  if shell and settings.INCOMPLETE_OUTPUT:
+    warn_msg = "The write to '" + dest_to_write + "' could not be verified - the confirmation "
+    warn_msg += "output came back incomplete."
+    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+  elif shell:
     info_msg = "The file has been successfully created in remote directory: '" + dest_to_write + "'."
     settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
   else:
@@ -3070,11 +3070,11 @@ def download_file_bytes(execute_cmd, remote_file):
     cmd = settings.FILE_READ_B64 + quoted_cmd(remote_file)
   encoded = execute_cmd(cmd)
   if not encoded:
-    return None
+    return None, False
   try:
-    return base64.b64decode("".join(str(encoded).split()), validate=True)
+    return base64.b64decode("".join(str(encoded).split()), validate=True), True
   except Exception:
-    return None
+    return None, True
 
 """
 Download a file from the target host to the local machine ("download <remote> <local>").
@@ -3086,20 +3086,31 @@ def shell_download(execute_cmd, cmd, filename):
   if os.path.isdir(local_file):
     local_file = os.path.join(local_file, os.path.basename(remote_file.replace("\\", "/").rstrip("/")))
 
-  info_msg = "Fetching contents of the file: '" + remote_file + "'."
-  settings.print_data_to_stdout(settings.print_info_msg(info_msg))
-
-  content = download_file_bytes(execute_cmd, remote_file)
-  if content is None:
-    # No usable base64 on the target - fall back to a plain read, which the command output
-    # channel returns as a single whitespace-separated line.
-    warn_msg = "Unable to retrieve '" + remote_file + "' as base64. Falling back to a plain read, "
-    warn_msg += "which does not preserve the file's original formatting."
+  if settings.TIME_RELATED_ATTACK:
+    # These techniques recover output character by character and report any they could not
+    # get, so base64 would turn a single missing character into a corrupt file - and cost a
+    # third more characters to extract.
+    warn_msg = "Recovering the output costs several requests per character, so this may take "
+    warn_msg += "a while and the file's original formatting is not preserved."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
     text = download_file(execute_cmd, remote_file, filename)
     if not text:
       return
     content = str(text).encode(settings.DEFAULT_CODEC, errors="replace")
+  else:
+    info_msg = "Fetching contents of the file: '" + remote_file + "'."
+    settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+    content, produced_output = download_file_bytes(execute_cmd, remote_file)
+    if content is None and produced_output:
+      err_msg = "The contents of '" + remote_file + "' could not be decoded, so the file was not written."
+      settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+      return
+    if content is None:
+      # No usable base64 on the target - a plain read costs one more request here.
+      text = download_file(execute_cmd, remote_file, filename)
+      if not text:
+        return
+      content = str(text).encode(settings.DEFAULT_CODEC, errors="replace")
 
   try:
     with open(local_file, "wb") as output_file:
@@ -3110,6 +3121,11 @@ def shell_download(execute_cmd, cmd, filename):
     return
 
   logs.report_add_file(remote_file, local_file)
+  if settings.INCOMPLETE_OUTPUT:
+    err_msg = "The file '" + remote_file + "' was written to '" + local_file + "' (" + str(len(content))
+    err_msg += " bytes) but is incomplete - the characters listed above are missing from it."
+    settings.print_data_to_stdout(settings.print_error_msg(err_msg))
+    return
   info_msg = "The file '" + remote_file + "' has been successfully downloaded to '" + local_file
   info_msg += "' (" + str(len(content)) + " bytes)."
   settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
@@ -3153,6 +3169,27 @@ def define_vulnerable_http_header(http_header_name):
   elif http_header_name == settings.HOST.lower():
     settings.HOST_INJECTION = True
   return http_header_name
+
+"""
+Whether the target actually serves requests concurrently. Parallel timing requests that queue
+behind each other make every response look delayed, which silently corrupts a retrieval.
+"""
+def target_serves_concurrently(url, http_request_method, workers):
+  try:
+    import concurrent.futures
+  except ImportError:
+    return False
+  samples = [requests.quick_response_time_sample(url, http_request_method) for _ in range(2)]
+  samples = [_ for _ in samples if _ is not None]
+  if not samples:
+    return True
+  serial = min(samples)
+  start = time.time()
+  with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+    list(executor.map(lambda _: requests.quick_response_time_sample(url, http_request_method), range(workers)))
+  elapsed = time.time() - start
+  # Serving them in parallel takes far less than doing them one after another.
+  return elapsed < serial * workers * 0.5
 
 """
 Decide whether persistent (Keep-Alive) connections are used.

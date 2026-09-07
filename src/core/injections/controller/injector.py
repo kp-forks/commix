@@ -46,6 +46,14 @@ def _abort_executor(executor, exc):
 """
 The main time-realative command injection exploitation.
 """
+"""
+How many output positions a time-related retrieval resolves at once.
+"""
+def retrieval_concurrency():
+  if settings.THREADS > 1 and _THREADS_SUPPORTED and settings.THREADED_TIME_RETRIEVAL_CHOICE != False:
+    return settings.THREADS
+  return 1
+
 def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, url_time_response, technique):
 
   payloads = execution.select_payloads_module(technique)
@@ -62,8 +70,13 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     timesec = settings.CALIBRATED_TIMESEC
 
   found_chars = False
+  # Retrieving a user command's output is exploitation, even when the finding was resumed.
+  settings.DETECTION_PHASE = False
+  settings.EXPLOITATION_PHASE = True
+  settings.INCOMPLETE_OUTPUT = False
   # Warn about network load once before the first command that needs it.
   checks.time_related_attaks_msg()
+  checks.warm_up_response_baseline(url, http_request_method)
 
   if settings.EXPLOITATION_PHASE and settings.ADJUST_TIME_DELAY_CHOICE is None:
     msg = "Do you want commix to try to optimize the value(s) for delay responses (option '--time-sec')? [Y/n] "
@@ -312,6 +325,17 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     info_msg = "Retrieved length: " + str(output_length)
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
+  # Every character costs its own requests, so a long output is worth confirming first.
+  if found_chars == True and output_length > settings.LARGE_OUTPUT_THRESHOLD:
+    workers = retrieval_concurrency()
+    message = "The output is " + str(output_length) + " characters long and is recovered "
+    message += "one character at a time" if workers == 1 else str(workers) + " characters at a time"
+    message += ". Do you want to retrieve it? [Y/n] "
+    if common.read_input(message, default="Y", check_batch=True) not in settings.CHOICE_YES:
+      warn_msg = "Skipping the retrieval of " + str(output_length) + " characters."
+      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+      return 0, ""
+
   # Proceed with the next (injection) step!
   if found_chars == True :
     if settings.TARGET_OS == settings.OS.WINDOWS:
@@ -455,16 +479,25 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
         if not force_full:
           with observed_chars_lock:
             top_candidates = sorted(char_frequency, key=char_frequency.get, reverse=True)[:settings.FREQUENCY_PROBE_TOP_K]
+          saturated = False
           for candidate in top_candidates:
             while True:
               try:
                 if _char_delayed(candidate, operator="-eq"):
-                  return candidate, False
+                  # Reject a saturated oracle: a value that cannot match must come back undelayed.
+                  if not (threaded or settings.JITTER_SEEN):
+                    return candidate, False
+                  control = candidate + 1 if candidate < max(char_pool) else min(char_pool)
+                  if not _char_delayed(control, operator="-eq"):
+                    return candidate, False
+                  saturated = True
                 break
               except KeyboardInterrupt:
                 if threaded:
                   raise
                 checks.handle_exploitation_interrupt(filename, url)
+            if saturated:
+              break
 
           with observed_chars_lock:
             eligible = (observed_count[0] >= settings.NARROWING_MIN_OBSERVED
@@ -635,7 +668,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     positions_to_extract = [pos for pos in positions if pos not in results_by_position]
     conn_error_positions = set()
     # Asked once already in do_time_related_process(), before this ever runs.
-    threaded = settings.THREADS > 1 and _THREADS_SUPPORTED and settings.THREADED_TIME_RETRIEVAL_CHOICE != False
+    threaded = retrieval_concurrency() > 1
     if not threaded:
       remaining = positions_to_extract
       while remaining:
@@ -700,6 +733,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
     if failed_positions:
+      settings.INCOMPLETE_OUTPUT = True
       warn_msg = str(len(failed_positions)) + " of " + str(len(positions)) + " character"
       warn_msg += "s"[len(positions) == 1:] + " could not be extracted (no delay was ever observed for "
       warn_msg += ("them" if len(failed_positions) != 1 else "it") + ") - the retrieved output below is missing "

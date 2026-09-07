@@ -620,7 +620,10 @@ def injection_process(url, check_parameter, http_request_method, filename, times
           return
         if len(menu.options.tech) == 0 or "t" in menu.options.tech:
           _ensure_time_warmup()
-          checks.warm_up_response_baseline(url, http_request_method)
+          # A resumed finding is re-verified against its own full delay, so the model can wait
+          # until the first command actually needs it.
+          if not (settings.LOAD_SESSION and settings.INJECTION_TECHNIQUE.TIME_BASED in settings.STORED_TECHNIQUES):
+            checks.warm_up_response_baseline(url, http_request_method)
         return timebased_command_injection_technique(url, timesec, filename, http_request_method, url_time_response)
 
       def _run_file_based():

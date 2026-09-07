@@ -73,8 +73,12 @@ def safe_input(message):
       return ""
   finally:
     settings.reset_terminal_style()
-  # Enter starts a fresh line, bypassing print_data_to_stdout's tracking.
-  settings.PROGRESS_LINE_OPEN = False
+  # A terminal echoes the user's Enter, starting a fresh line; a pipe does not, so the
+  # prompt line is still open and the next message has to break it itself.
+  try:
+    settings.PROGRESS_LINE_OPEN = not sys.stdin.isatty()
+  except Exception:
+    settings.PROGRESS_LINE_OPEN = False
   return value
 
 """

@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "109"
+REVISION = "110"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -600,7 +600,8 @@ EXTRA_HTTP_HEADERS = False
 
 # Use the full printable ASCII range; bisection only depends on ordinal bounds.
 CHAR_POOL_SINGLE = list(range(32, 127))
-CHAR_POOL_MULTI = list(range(32, 127))
+# Newline and tab are part of real command output, so they have to be recoverable too.
+CHAR_POOL_MULTI = [9, 10] + list(range(32, 127))
 
 # The command injection separators.
 SEPARATORS = []
@@ -682,6 +683,10 @@ MAX_THREADS = 10
 OPTIMIZE_THREADS = 3
 # Whether persistent (Keep-Alive) connections are in use.
 KEEP_ALIVE = False
+# Set when a time-related retrieval could not resolve every character of the output.
+INCOMPLETE_OUTPUT = False
+# Output length above which a time-related retrieval asks before spending a request per character.
+LARGE_OUTPUT_THRESHOLD = 500
 
 # Locks for shared state accessed by concurrent threads.
 PRINT_LOCK = _threading.Lock()

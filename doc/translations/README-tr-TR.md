@@ -1,15 +1,20 @@
-
-<p align="left">
-  <img alt="CommixProject" src="https://commixproject.com/images/logo.png" height="120" />
-  <p align="left">
-    <a href="https://github.com/commixproject/commix/actions/workflows/builds.yml"><img alt="Builds Tests" src="https://github.com/commixproject/commix/actions/workflows/builds.yml/badge.svg"></a>
-    <a href="http://www.python.org/download/"><img alt="Python 2.6|2.7|3.x" src="https://img.shields.io/badge/python-2.6|2.7|3.x-yellow.svg"></a>
-    <a href="https://github.com/commixproject/commix/blob/master/LICENSE.txt"><img alt="GPLv3 License" src="https://img.shields.io/badge/license-GPLv3-red.svg"></a>
-    <a href="https://github.com/commixproject/commix/issues?q=is%3Aissue+is%3Aclosed"><img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed-raw/commixproject/commix.svg?colorB=ff0000"></a>
-    <a href="https://x.com/commixproject"><img alt="x" src="https://img.shields.io/badge/x-@commixproject-blue.svg"></a>
-  </p>
+<p align="center">
+  <img alt="CommixProject" src="https://commixproject.com/images/logo.png" height="140" />
 </p>
 
+<div align="center">
+
+[`English`](../../README.md) • [`Ελληνικά`](README-gr-GR.md) • [`Español`](README-es-ES.md) • [`Français`](README-fr-FR.md) • [`فارسی`](README-fa-FA.md) • [`Bahasa Indonesia`](README-idn-IDN.md) • `Türkçe`
+
+</div>
+
+<p align="center">
+  <a href="https://github.com/commixproject/commix/actions/workflows/builds.yml"><img alt="Builds Tests" src="https://github.com/commixproject/commix/actions/workflows/builds.yml/badge.svg"></a>
+  <a href="https://www.python.org/downloads/"><img alt="Python 3.7+" src="https://img.shields.io/badge/python-3.7+-yellow.svg"></a>
+  <a href="https://github.com/commixproject/commix/blob/master/LICENSE.txt"><img alt="GPLv3 License" src="https://img.shields.io/badge/license-GPLv3-red.svg"></a>
+  <a href="https://github.com/commixproject/commix/issues?q=is%3Aissue+is%3Aclosed"><img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed-raw/commixproject/commix.svg?colorB=ff0000"></a>
+  <a href="https://x.com/commixproject"><img alt="X" src="https://img.shields.io/badge/x-@commixproject-blue.svg"></a>
+</p>
 
 **Commix** ([comm]and [i]njection e[x]ploiter'ın kısaltması), **[Anastasios Stasinopoulos](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**) tarafından yazılan ve **[Komut enjeksiyonu](https://owasp.org/www-community/attacks/Command_Injection)** güvenlik açıklarının tespitini ve istismarını otomatikleştiren açık kaynaklı bir sızma testi aracıdır.
 
@@ -17,6 +22,27 @@
 
 Wiki'deki bazı özellikleri gösteren [ekran görüntüleri koleksiyonunu](https://github.com/commixproject/commix/wiki/Screenshots) ziyaret edebilirsiniz.
 
+> [!IMPORTANT]
+> **Bu proje aktif geliştirme aşamasındadır.** Sürümler arasında geriye dönük uyumluluğu bozan
+> değişiklikler olabilir. Güncellemeden önce
+> [değişiklik günlüğünü](https://github.com/commixproject/commix/blob/master/doc/CHANGELOG.md)
+> inceleyin.
+>
+> Commix öncelikle bağımsız bir komut satırı aracı olarak kullanılmak üzere tasarlanmıştır ve test
+> ettiği hedeflerde işletim sistemi komutları çalıştırır. **Commix'i bir servis olarak çalıştırmak
+> güvenlik riskleri doğurabilir.** Dikkatli kullanılması ve yalnızca size ait olan ya da test etmek
+> için açık yetkiye sahip olduğunuz sistemlerde kullanılması önerilir.
+
+## Özellikler
+
+* **Beş enjeksiyon tekniği** - classic, dynamic code evaluation, time-based, file-based (yazma kısıtlı hedefler için tempfile-based varyantıyla birlikte) ve HTTP/S ile DNS üzerinden out-of-band (OAST).
+* **Geniş enjeksiyon yüzeyi** - GET/POST parametreleri, HTTP başlıkları, çerezler ve JSON/XML istek gövdeleri; ayrıca CGI hedefleri için `shellshock` modülü.
+* **Etkileşimli kabuklar** - hedef üzerinde `os_shell`, yerleşik `reverse_tcp` ve `bind_tcp` modları ve kurulan kabuk üzerinden dosya aktarımı (`download`/`upload`).
+* **Numaralandırma ve dosya erişimi** - geçerli kullanıcı, makine adı, yetkiler, sistem bilgileri, kullanıcılar ve parola özetleri; hedefte dosya okuma ve yazma.
+* **Filtre ve WAF atlatma** - birlikte kullanılabilen 22 tamper betiği, belirlenimci bir sırayla uygulanır.
+* **Esnek hedefleme** - tek bir URL, site taraması, HTML formları, sitemap, proxy günlüğü, çoklu hedef dosyası, ham HTTP istek dosyası veya `stdin` girdisi.
+* **Kaldığı yerden devam eden taramalar** - sonuçlar hedef bazında bir oturum dosyasında saklanır ve JSON olarak dışa aktarılabilir.
+* **Geniş arka uç desteği** - PHP, Python, Perl, Ruby ve CGI; ASP.NET ve JSP için deneysel destek.
 
 ## Kurulum
 
@@ -27,25 +53,41 @@ Resmi Git deposunu klonlayarak commix'i herhangi bir platformda indirebilirsiniz
 
 Alternatif olarak, en son [tarball](https://github.com/commixproject/commix/tarball/master) veya [zipball](https://github.com/commixproject/commix/zipball/master) olarak indirebilirsiniz.
 
-*__Not:__ **[Python](http://www.python.org/download/)** (sürüm **2.6**, **2.7** veya **3.x**) commix'i çalıştırmak için gereklidir.*
-
-
-
-
+> [!NOTE]
+> Commix'i çalıştırmak için **[Python](https://www.python.org/downloads/)** (sürüm **3.7** veya
+> üzeri) gereklidir. Diğer tüm bağımlılıklar programla birlikte gelir, bu nedenle ek bir kurulum
+> adımına gerek yoktur.
 
 
 ## Kullanım
 
 Seçeneklerinizi görmek ve yardım almak için aşağıdaki komutu girin:
 
-    $ python commix.py -h
+    $ python3 commix.py -h
 
-Mevcut commix seçenekleri veya commix'in nasıl kullanılacağına dair temel fikirler hakkında bilgi edinmek amacıyla **[kullanım kılavuzu](https://github.com/commixproject/commix/wiki/Usage)**, **[kullanım örnekleri](https://github.com/commixproject/commix/wiki/Usage-Examples)** ve **[filtre bypassları](https://github.com/commixproject/commix/wiki/Filters-Bypasses)**  wiki sayfalarını ziyaret edebilirsiniz.
+Tek bir enjekte edilebilir parametreyi test edip hedefte bir kabuk açmak için:
+
+    $ python3 commix.py --url="http://www.target.com/vuln.php?addr=127.0.0.1" --os-shell
+
+Yanıtın hiçbir şey döndürmediği durumlarda çalıştırmayı bant dışı yöntemle kanıtlamak için:
+
+    $ python3 commix.py --url="http://www.target.com/vuln.php" --data="addr=127.0.0.1" --oob
+
+> [!NOTE]
+> `--oob` ile yapılan bant dışı (OAST) tespit, varsayılan olarak herkese açık `oast.fun` interactsh
+> sunucusunu kullanır; bu nedenle hedefinizle ilgili etkileşim meta verileri ağınızın dışına çıkar.
+> Bunları kurum içinde tutmak için `--oob-server` seçeneğini kendi sunucunuza yönlendirin. Ayrıntılı
+> rehber için wiki'deki
+> [**`techniques`**](https://github.com/commixproject/commix/wiki/Techniques) sayfasına bakın.
+
+Bir hedef listesini gözetimsiz taramak ve sonuçları bir dosyaya yazmak için:
+
+    $ python3 commix.py -m targets.txt --batch --report-json=results.json
+
+Mevcut commix seçenekleri veya commix'in nasıl kullanılacağına dair temel fikirler hakkında bilgi edinmek amacıyla **[kullanım kılavuzu](https://github.com/commixproject/commix/wiki/Usage)**, **[kullanım örnekleri](https://github.com/commixproject/commix/wiki/Usage-examples)** ve **[filtre bypassları](https://github.com/commixproject/commix/wiki/Filters-bypass-examples)**  wiki sayfalarını ziyaret edebilirsiniz.
 
 
 ## Linkler
 
 * Kullanım kılavuzu: https://github.com/commixproject/commix/wiki
 * Sorun takibi: https://github.com/commixproject/commix/issues
-
-

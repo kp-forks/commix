@@ -25,6 +25,7 @@ from src.utils import settings
 from src.thirdparty import six
 from src.thirdparty.six.moves import input as _input
 from src.thirdparty.six.moves import urllib as _urllib
+from src.thirdparty.six.moves import http_client as _http_client
 
 """
 Invalid cmd output
@@ -173,14 +174,24 @@ def days_from_last_update():
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 """
-Shows all HTTP error codes raised
+Shows all HTTP error codes raised, each with the number of times it came back.
 """
 def show_http_error_codes():
-  if settings.HTTP_ERROR_CODES_SUM and settings.VERBOSITY_LEVEL != 0:
-    if any((str(_).startswith('4') or str(_).startswith('5')) and _ != settings.INTERNAL_SERVER_ERROR for _ in settings.HTTP_ERROR_CODES_SUM):
-      debug_msg = "Too many 4xx and/or 5xx HTTP error codes "
-      debug_msg += "could mean that some kind of protection is involved."
-      settings.print_data_to_stdout(settings.print_bold_debug_msg(debug_msg))
+  if not settings.HTTP_ERROR_CODES_SUM or settings.VERBOSITY_LEVEL == 0:
+    return
+  counted = {}
+  for code in settings.HTTP_ERROR_CODES_SUM:
+    counted[str(code)] = counted.get(str(code), 0) + 1
+  described = []
+  # Most frequent first, so the one that shaped the run is read first.
+  for code in sorted(counted, key=lambda _: (-counted[_], _)):
+    reason = _http_client.responses.get(int(code)) if code.isdigit() else None
+    times = counted[code]
+    described.append(code + (" (" + reason + ")" if reason else "") +
+                     " - " + str(times) + " time" + "s"[times == 1:])
+  debug_msg = "HTTP error code" + "s"[len(counted) == 1:] + " detected during run: "
+  debug_msg += ", ".join(described) + "."
+  settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
 
 """
 Masks sensitive data in the supplied message.
@@ -238,7 +249,7 @@ def create_github_issue(err_msg, exc_msg):
   )
 
   try:
-    response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT)
+    response = _urllib.request.urlopen(request, timeout=settings.TIMEOUT, context=settings.verified_context())
     content = response.read()
     response.close()
     _ = json.loads(content)

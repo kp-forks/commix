@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "110"
+REVISION = "111"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -346,8 +346,10 @@ APPLICATION_X_ACCOUNT = "@commixproject"
 # Default User-Agent
 DEFAULT_USER_AGENT = APPLICATION + "/" + VERSION + " (" + APPLICATION_URL + ")"
 
+# Legal Disclaimer
 LEGAL_DISCLAIMER_MSG = "Attacking targets without prior mutual consent is illegal. " + \
                        "Obeying applicable laws is your responsibility and "+ APPLICATION +" developers assume no liability.\n"
+
 # Random string generator
 RANDOM_STRING_GENERATOR = ''.join(random.choice(string.ascii_uppercase + string.digits + string.ascii_lowercase) for _ in range(10))
 # Random variable name (E-Z only).
@@ -407,7 +409,8 @@ LINUX_PYTHON_INTERPRETER = "python3"
 LINUX_CUSTOM_PYTHON_INTERPRETER = "python27"
 USER_DEFINED_PYTHON_INTERPRETER = False
 
-CMD_NUL = ""
+# Feeds 'set /p' from the null device, so its no-newline echo trick gets EOF instead of blocking.
+CMD_NUL = "<nul"
 
 CMD_SUB_PREFIX = "$("
 CMD_SUB_SUFFIX = ")"
@@ -517,6 +520,7 @@ EVAL_BASED_STATE = False
 TIME_BASED_STATE = False
 FILE_BASED_STATE = False
 TEMPFILE_BASED_STATE = False
+OOB_STATE = False
 
 # The technique currently being announced/tested.
 CURRENT_TECHNIQUE = None
@@ -738,7 +742,7 @@ PYTHON_VERSION = sys.version.split()[0]
 
 # Enumeration Commands
 # Output PowerShell's version number
-PS_VERSION = "powershell.exe -InputFormat none write-host ([string]$(cmd /c powershell.exe -InputFormat none get-host)[3]).replace('Version','').replace(' ','').substring(1,3)"
+PS_VERSION = "powershell.exe -NoProfile -InputFormat none write-host ($PSVersionTable.PSVersion.ToString(2))"
 
 # Current user
 CURRENT_USER = "whoami"
@@ -830,7 +834,8 @@ MAX_UNSTABLE_TIMESEC_BUMP = 5
 # Available alternative shells
 AVAILABLE_INTERPRETERS = ["python"]
 
-# Available injection techniques.
+# Available injection techniques. Out-of-band is not one of them - it is the '--oob' switch, so that
+# it can serve the modules too, which never go through '--technique'.
 AVAILABLE_TECHNIQUES = ['c','e','t','f']
 
 # Supported injection types
@@ -838,6 +843,7 @@ class INJECTION_TYPE(object):
   RESULTS_BASED_CI = "results-based command injection"
   RESULTS_BASED_CE = "results-based dynamic code evaluation"
   BLIND = "blind command injection"
+  BLIND_CE = "blind dynamic code evaluation"
   SEMI_BLIND = "semi-blind command injection"
 
 # Supported injection techniques
@@ -847,12 +853,79 @@ class INJECTION_TECHNIQUE(object):
   TIME_BASED = "time-based command injection technique"
   FILE_BASED = "file-based injection technique"
   TEMP_FILE_BASED = "tempfile-based injection technique"
+  OOB = "out-of-band command injection technique"
 
 # Canonical order techniques are tested and reported in.
-TECHNIQUE_ORDER = [INJECTION_TECHNIQUE.CLASSIC, INJECTION_TECHNIQUE.DYNAMIC_CODE, INJECTION_TECHNIQUE.TIME_BASED, INJECTION_TECHNIQUE.FILE_BASED, INJECTION_TECHNIQUE.TEMP_FILE_BASED]
+TECHNIQUE_ORDER = [INJECTION_TECHNIQUE.CLASSIC, INJECTION_TECHNIQUE.DYNAMIC_CODE, INJECTION_TECHNIQUE.TIME_BASED, INJECTION_TECHNIQUE.FILE_BASED, INJECTION_TECHNIQUE.TEMP_FILE_BASED, INJECTION_TECHNIQUE.OOB]
 
 USER_APPLIED_TECHNIQUE = False
 SKIP_TECHNIQUES = False
+
+# Out-of-band (OAST) support.
+OOB_PROVIDER_INTERACTSH = "interactsh"
+OOB_INTERACTSH_DOMAIN = "oast.fun"
+OOB_SERVER = ""
+OOB_TOKEN = ""
+OOB_TIMEOUT = 15
+OOB_POLL_INTERVAL = 5
+# How often a wait asks the server itself, instead of sitting out the interval above. An interaction
+# is on the server long before the next poll would bring it in, and a wait is the part of a run that
+# has something to wait for - so it asks harder than the idle poller does.
+OOB_WAIT_POLL_INTERVAL = 2
+OOB_CHANNEL = None
+OOB_TRANSPORT = ""
+# The client the heuristic saw answer, tried first by the technique that follows it.
+OOB_HEURISTIC_TRANSPORT = ""
+
+# How many times a command's output is asked for over a name lookup before giving up on it.
+OOB_DNS_ATTEMPTS = 2
+# The HTTP clients the heuristic asked and never heard from, through a payload a name lookup proved
+# had run. The sweep leaves those out and leads with the lookup instead of paying for them again.
+OOB_HEURISTIC_HTTP_SILENT = []
+OOB_EVAL = False
+# Payloads reach the server over the same scheme it is polled on, so that command output is not
+# sent in the clear unless the user asked for a plain-HTTP server.
+OOB_SCHEME = "https"
+# The port the payload's URL carries, when the out-of-band server is not on the scheme's own one.
+OOB_PORT = None
+# An out-of-band payload never reads the response, so a target that takes too long to answer has
+# not failed - the interaction arrives on its own. Set once the channel is up.
+OOB_IGNORE_TIMEOUT = False
+# Seconds to wait on a probe's response before moving on. Some clients block for tens of seconds
+# ('certutil' well past a minute), which would make a sweep take hours for nothing.
+OOB_PROBE_TIMEOUT = 5
+# Seconds the heuristic keeps waiting for an HTTP client once a name lookup has already answered,
+# so the sweep is handed the client that can carry a command's output back whole.
+OOB_HTTP_GRACE = 4
+# How many of a sweep's first combinations are polled for eagerly, instead of waiting out the
+# interval. The likeliest boundary comes first, so this usually ends the sweep after a few probes.
+OOB_EAGER_POLLS = 3
+SHELLSHOCK_OOB = False
+
+# The tamper-count warning is per run, not per technique announcement.
+TAMPER_WARNING_SHOWN = False
+
+"""
+The TLS context for target requests - a target's certificate is routinely self-signed or expired.
+"""
+def unverified_context():
+  import ssl
+  return ssl._create_unverified_context()
+
+"""
+The TLS context for commix's own infrastructure calls, which are verified.
+"""
+def verified_context():
+  import os, ssl
+  context = ssl.create_default_context()
+  paths = ssl.get_default_verify_paths()
+  if not (paths.cafile or paths.capath):
+    for bundle in ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt",
+                   "/etc/pki/tls/certs/ca-bundle.crt", "/usr/local/etc/openssl/cert.pem"):
+      if os.path.exists(bundle):
+        return ssl.create_default_context(cafile=bundle)
+  return context
+SKIP_OOB_INJECTIONS = False
 
 # Raised by checks.handle_detection_interrupt() to unwind to the right point
 # in the detection loop.
@@ -1226,6 +1299,8 @@ OS_CMD_DONE = False
 PENDING_OS_SHELL_ENTRY = None
 # Guards the resumed-session log notice against quit()'s recursion.
 LOGS_NOTIFICATION_SHOWN = False
+# Set once a finding is worth suggesting '--os-shell' for, printed where the run ends.
+OS_SHELL_SUGGESTION_PENDING = False
 
 # Path to file containing desktop/browser User-Agent strings
 USER_AGENT_LIST = os.path.join(TXT_DIR, "user-agents.txt")
@@ -1440,6 +1515,11 @@ TIME_DELAY_STEP = 1
 MIN_TIME_RESPONSES = 30
 MAX_TIME_RESPONSES = 200
 RESPONSE_TIMES = []
+# Set once a time-related payload's own cost has been sampled into the model above.
+PAYLOAD_BASELINE_SAMPLED = False
+# Whether the model above was sampled the way the payloads that follow are sent - concurrently,
+# where '--threads' asks for it. A target answers a request slower while it is serving others.
+CONCURRENT_BASELINE = False
 LAGGING_CHECKED = False
 LAGGING_DETECTED = False
 TIME_DELAY_CANDIDATES = 3

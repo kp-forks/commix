@@ -235,6 +235,7 @@ def init_request(url, http_request_method):
       username, _sep, password = menu.options.auth_cred.partition(":")
       digest_handler.add_password(settings.DIGEST_AUTH_REALM, url, username, password)
       probe_handlers.append(digest_handler)
+    probe_handlers.append(_urllib.request.HTTPSHandler(context=settings.unverified_context()))
     opener = _urllib.request.build_opener(*probe_handlers)
     # Install globally so later bare urlopen() calls respect it too.
     _urllib.request.install_opener(opener)
@@ -341,6 +342,7 @@ def init_injection(url):
   settings.TIME_BASED_STATE = False
   settings.FILE_BASED_STATE = False
   settings.TEMPFILE_BASED_STATE = False
+  settings.OOB_STATE = False
   settings.TIME_RELATED_ATTACK = False
 
   # Reset custom and temporary settings
@@ -534,6 +536,11 @@ def main(filename, url, http_request_method):
         menu.options.tech = ''.join([str(x) for x in settings.AVAILABLE_TECHNIQUES])
 
     menu.options.tech = menu.options.tech.lower()
+    if menu.options.oob and settings.USER_APPLIED_TECHNIQUE:
+      err_msg = "The switch '--oob' selects the out-of-band technique on its own, so it cannot be "
+      err_msg += "combined with '--technique'."
+      settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+      raise SystemExit()
     # Check for skipping injection techniques.
     if menu.options.skip_tech:
       # Convert injection technique(s) to lowercase
@@ -554,8 +561,9 @@ def main(filename, url, http_request_method):
         settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
         raise SystemExit()
 
-    # Check if specified wrong injection technique
-    if menu.options.tech and menu.options.tech not in settings.AVAILABLE_TECHNIQUES:
+    # Check if specified wrong injection technique - only what the user actually typed, since a
+    # resumed session hands back techniques that are not selectable on the command line.
+    if settings.USER_APPLIED_TECHNIQUE and menu.options.tech and menu.options.tech not in settings.AVAILABLE_TECHNIQUES:
       found_tech = False
       # Check if used the ',' separator
       if settings.PARAMETER_SPLITTING_REGEX in menu.options.tech:
@@ -564,7 +572,7 @@ def main(filename, url, http_request_method):
         split_techniques_names = menu.options.tech.split()
       if split_techniques_names:
         for i in range(0,len(split_techniques_names)):
-          if len(menu.options.tech) <= 4:
+          if len(menu.options.tech) <= len(settings.AVAILABLE_TECHNIQUES):
             split_first_letter = list(menu.options.tech)
             for j in range(0,len(split_first_letter)):
               if split_first_letter[j] in settings.AVAILABLE_TECHNIQUES:
@@ -586,6 +594,9 @@ def main(filename, url, http_request_method):
         err_msg += ". Refer to the official wiki for details."
         settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
         raise SystemExit()
+
+    if menu.options.oob:
+      menu.options.tech = 'o'
 
     # Check the file-destination
     if menu.options.file_write is not None and not menu.options.file_dest:
@@ -791,6 +802,10 @@ try:
         err_msg += "Use -h for help."
         settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
       raise SystemExit()
+
+    # Any out-of-band option on its own is enough to ask for the channel.
+    if any((menu.options.oob_server, menu.options.oob_token, menu.options.oob_poll != settings.OOB_POLL_INTERVAL)):
+      menu.options.oob = True
 
     checks.init_keep_alive()
     checks.set_optimize()

@@ -26,11 +26,11 @@ def use_proxy(request):
   try:
     if menu.options.ignore_proxy:
       proxy = _urllib.request.ProxyHandler({})
-      opener = _urllib.request.build_opener(proxy, redirection.RedirectHandler())
+      opener = _urllib.request.build_opener(proxy, redirection.RedirectHandler(), _urllib.request.HTTPSHandler(context=settings.unverified_context()))
       _urllib.request.install_opener(opener)
     elif menu.options.tor:
       proxy = _urllib.request.ProxyHandler({settings.SCHEME:menu.options.proxy})
-      opener = _urllib.request.build_opener(proxy, redirection.RedirectHandler())
+      opener = _urllib.request.build_opener(proxy, redirection.RedirectHandler(), _urllib.request.HTTPSHandler(context=settings.unverified_context()))
       _urllib.request.install_opener(opener)
     else:
       request.set_proxy(menu.options.proxy, settings.SCHEME)

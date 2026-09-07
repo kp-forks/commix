@@ -506,6 +506,44 @@ injection.add_option("--skip-technique",
                 dest="skip_tech",
                 help="Specify injection technique(s) to skip.")
 
+injection.add_option("--oob",
+                action="store_true",
+                dest="oob",
+                default=False,
+                help="Use an out-of-band (OAST) channel over HTTP(S).")
+
+injection.add_option("--oob-server",
+                action="store",
+                dest="oob_server",
+                help="Self-hosted interactsh server to use.")
+
+injection.add_option("--oob-token",
+                action="store",
+                dest="oob_token",
+                help="Auth token for the out-of-band server.")
+
+injection.add_option("--oob-transport",
+                action="store",
+                dest="oob_transport",
+                help="Client the target reaches the out-of-band server with (e.g. 'dns', 'curl').")
+
+injection.add_option("--oob-scheme",
+                action="store",
+                dest="oob_scheme",
+                help="Scheme the target reaches the out-of-band server on ('http' or 'https').")
+
+injection.add_option("--oob-poll",
+                action="store",
+                dest="oob_poll",
+                default=settings.OOB_POLL_INTERVAL,
+                help="Seconds between out-of-band server polls (Default: " + str(settings.OOB_POLL_INTERVAL) + ").")
+
+injection.add_option("--oob-timeout",
+                action="store",
+                dest="oob_timeout",
+                default=settings.OOB_TIMEOUT,
+                help="Seconds to wait for an interaction (Default: " + str(settings.OOB_TIMEOUT) + ").")
+
 injection.add_option("--maxlen",
                 action="store",
                 dest="maxlen",

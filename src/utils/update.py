@@ -112,7 +112,7 @@ Check for new version of commix
 """
 def check_for_update():
   try:
-    response = _urllib.request.urlopen('https://raw.githubusercontent.com/commixproject/commix/master/src/utils/settings.py', timeout=settings.TIMEOUT)
+    response = _urllib.request.urlopen('https://raw.githubusercontent.com/commixproject/commix/master/src/utils/settings.py', timeout=settings.TIMEOUT, context=settings.verified_context())
     try:
       version_check = response.readlines()
     finally:

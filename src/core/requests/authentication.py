@@ -49,7 +49,7 @@ def authentication_process(http_request_method):
     auth_url = menu.options.auth_url
     auth_data = menu.options.auth_data
     cj = _http_cookiejar.CookieJar()
-    opener = _urllib.request.build_opener(_urllib.request.HTTPCookieProcessor(cj), redirection.RedirectHandler())
+    opener = _urllib.request.build_opener(_urllib.request.HTTPCookieProcessor(cj), redirection.RedirectHandler(), _urllib.request.HTTPSHandler(context=settings.unverified_context()))
     _urllib.request.install_opener(opener)
     # Login data is always form-submitted as POST, regardless of the target URL's own method.
     request = _urllib.request.Request(auth_url, auth_data.encode(settings.DEFAULT_CODEC), method=settings.HTTPMETHOD.POST)
@@ -117,13 +117,13 @@ def _try_credentials(url, realm, http_request_method, authentication_type, usern
     authhandler.add_password(realm, url, username, password)
     request = _urllib.request.Request(url, method=http_request_method)
     if menu.options.ignore_proxy:
-      opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({}), authhandler, redirection.RedirectHandler())
+      opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({}), authhandler, redirection.RedirectHandler(), _urllib.request.HTTPSHandler(context=settings.unverified_context()))
     elif menu.options.tor:
-      opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({settings.SCHEME: menu.options.proxy}), authhandler, redirection.RedirectHandler())
+      opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({settings.SCHEME: menu.options.proxy}), authhandler, redirection.RedirectHandler(), _urllib.request.HTTPSHandler(context=settings.unverified_context()))
     else:
       if menu.options.proxy:
         request.set_proxy(menu.options.proxy, settings.SCHEME)
-      opener = _urllib.request.build_opener(authhandler, redirection.RedirectHandler())
+      opener = _urllib.request.build_opener(authhandler, redirection.RedirectHandler(), _urllib.request.HTTPSHandler(context=settings.unverified_context()))
     headers.do_check(request)
     response = opener.open(request, timeout=settings.TIMEOUT)
     response.close()

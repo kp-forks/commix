@@ -350,13 +350,12 @@ def _finish_response_time_estimate(diff, timesec):
   if int(diff) < 1:
     url_time_response = int(diff)
   else:
-    if settings.TARGET_OS == settings.OS.WINDOWS:
-      warn_msg = "Due to the relatively slow response of 'cmd.exe' in target "
-      warn_msg += "host, there might be delays during the data extraction procedure."
-      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
     url_time_response = int(round(diff))
     warn_msg = "Target's estimated response time is " + str(url_time_response)
-    warn_msg += " second" + "s"[url_time_response == 1:] + ". This may delay"
+    warn_msg += " second" + "s"[url_time_response == 1:]
+    if settings.TARGET_OS == settings.OS.WINDOWS:
+      warn_msg += " (a relatively slow 'cmd.exe' on the target host adds to it)"
+    warn_msg += ". This may delay"
     if url_time_response >= 3:
       warn_msg += " and/or corrupt"
     warn_msg += " data extraction."
@@ -401,6 +400,13 @@ def request_failed(err_msg):
     stability.disable_retries()
     if any((settings.BIND_TCP, settings.REVERSE_TCP)) and re.search(r"timed?\s*out", str(error_msg), re.IGNORECASE):
       raise SystemExit()
+    if settings.OOB_IGNORE_TIMEOUT and re.search(r"timed?\s*out", str(error_msg), re.IGNORECASE):
+      # Nothing is read from the response here, and some clients on the target take tens of
+      # seconds to return, so waiting in vain is expected rather than fatal.
+      if settings.VERBOSITY_LEVEL >= 2:
+        debug_msg = "The target did not answer in time, which an out-of-band payload does not need."
+        settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
+      return False
     err = "Unable to connect to the target URL"
     if menu.options.tor:
       err += " using the Tor network"
@@ -854,9 +860,13 @@ def server_identification(response):
     if match:
       settings.SERVER_BANNER = match.group(0)
 
-      # Set up default document root paths
+      # Set up default document root paths. This runs on the first connection, before the target's
+      # operating system has been worked out, so the banner itself has to answer for it - an Apache
+      # build reports "(Win32)" or "(Win64)" and would otherwise be handed a Linux path.
+      windows_banner = (settings.TARGET_OS == settings.OS.WINDOWS or
+                        re.search(r"\(Win(32|64)\)", server_banner, re.IGNORECASE) is not None)
       if "apache" in settings.SERVER_BANNER.lower():
-        if settings.TARGET_OS == settings.OS.WINDOWS:
+        if windows_banner:
           settings.WEB_ROOT = settings.WINDOWS_DEFAULT_DOC_ROOTS[1]
         else:
           settings.WEB_ROOT = settings.LINUX_DEFAULT_DOC_ROOTS[0].replace(
@@ -903,6 +913,33 @@ def url_reload(url, delay_seconds):
 Calculate the time related execution time
 """
 def perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url):
+  saved_timeout, saved_keep_alive = settings.TIMEOUT, settings.KEEP_ALIVE
+  # A time-related payload asks the target to sleep, so the answer is meant to be late. Waiting less
+  # than the delay we asked for turns our own request into a connection error, which on a target
+  # slow enough to need a raised delay would abort the scan.
+  needed = injected_delay_allowance()
+  if needed > settings.TIMEOUT:
+    settings.TIMEOUT = needed
+    # A pooled connection keeps the timeout it was opened with, so a reused one would ignore this.
+    settings.KEEP_ALIVE = False
+  try:
+    return _perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url)
+  finally:
+    settings.TIMEOUT, settings.KEEP_ALIVE = saved_timeout, saved_keep_alive
+
+"""
+Seconds a request needs to allow for, when the payload deliberately delays the answer.
+"""
+def injected_delay_allowance():
+  if not settings.TIME_RELATED_ATTACK:
+    return 0
+  delay = settings.CALIBRATED_TIMESEC or menu.options.timesec or 0
+  # What the payload actually asks for, not what was configured - a target whose delay is built
+  # differently would otherwise have its own answer cut off, which reads as no delay at all.
+  # The false-positive round adds a few seconds of its own on top of the calibrated delay.
+  return checks.injected_delay(delay) + settings.TIME_DELAY_STEP + 10
+
+def _perform_injection(prefix, suffix, whitespace, payload, vuln_parameter, http_request_method, url):
   # Fix prefixes / suffixes
   payload, prefix = parameters.prefixes(payload, prefix)
   payload, suffix = parameters.suffixes(payload, suffix)

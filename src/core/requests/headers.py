@@ -14,15 +14,6 @@ For more see the file 'readme/COPYING' for copying permission.
 """
 
 import re
-import ssl
-try:
-  _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
-  # Legacy Python that doesn't verify HTTPS certificates by default
-  pass
-else:
-  # Handle target environment that doesn't support HTTPS verification
-  ssl._create_default_https_context = _create_unverified_https_context
 import time
 try:
   from base64 import encodebytes
@@ -220,13 +211,13 @@ def check_http_traffic(request):
 
   # Also route through the configured proxy/Tor, so this fetch is reusable.
   if menu.options.ignore_proxy:
-    opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({}), connection_handler(), redirection.RedirectHandler(), *extra_handlers)
+    opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({}), connection_handler(context=settings.unverified_context()), redirection.RedirectHandler(), *extra_handlers)
   elif menu.options.tor:
-    opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({settings.SCHEME: menu.options.proxy}), connection_handler(), redirection.RedirectHandler(), *extra_handlers)
+    opener = _urllib.request.build_opener(_urllib.request.ProxyHandler({settings.SCHEME: menu.options.proxy}), connection_handler(context=settings.unverified_context()), redirection.RedirectHandler(), *extra_handlers)
   else:
     if menu.options.proxy:
       request.set_proxy(menu.options.proxy, settings.SCHEME)
-    opener = _urllib.request.build_opener(connection_handler(), redirection.RedirectHandler(), *extra_handlers)
+    opener = _urllib.request.build_opener(connection_handler(context=settings.unverified_context()), redirection.RedirectHandler(), *extra_handlers)
 
   # Time limit mechanism.
   if menu.options.time_limit and (time.time() - settings.START_TIME > menu.options.time_limit):

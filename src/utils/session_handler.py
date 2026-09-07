@@ -84,7 +84,7 @@ def technique_letter(technique_info):
     return technique_info.split()[2][0]
   if technique_info == settings.INJECTION_TECHNIQUE.TEMP_FILE_BASED:
     return settings.INJECTION_TECHNIQUE.FILE_BASED[0]
-  if technique_info in (settings.INJECTION_TECHNIQUE.CLASSIC, settings.INJECTION_TECHNIQUE.TIME_BASED, settings.INJECTION_TECHNIQUE.FILE_BASED):
+  if technique_info in (settings.INJECTION_TECHNIQUE.CLASSIC, settings.INJECTION_TECHNIQUE.TIME_BASED, settings.INJECTION_TECHNIQUE.FILE_BASED, settings.INJECTION_TECHNIQUE.OOB):
     return technique_info[0]
   return None
 

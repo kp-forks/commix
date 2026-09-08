@@ -1,4 +1,5 @@
 ## Version 4.2 (TBA)
+* Fixed: Only marked HTTP headers are tested, and GET/POST/cookie parameters named like a header (e.g. 'host') are no longer treated as headers.
 * Revised: Improved reliability across the supported injection techniques and modules, including out-of-band (OAST) detection and command execution support.
 * Added: New `-o` switch to turn on all optimization switches.
 * Added: Persistent (Keep-Alive) connections are now used by default, with a new `--no-keep-alive' switch to opt out.

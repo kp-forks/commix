@@ -120,7 +120,7 @@ def check_for_stored_sessions(url, check_parameter, http_request_method):
 """
 Heuristic request(s)
 """
-def heuristic_request(url, http_request_method, check_parameter, payload, whitespace):
+def heuristic_request(url, http_request_method, check_parameter, payload, whitespace, place):
   data = None
   cookie = None
   tmp_url = url
@@ -157,7 +157,9 @@ def heuristic_request(url, http_request_method, check_parameter, payload, whites
   request = _urllib.request.Request(tmp_url, data, method=http_request_method)
   if cookie:
     request.add_header(settings.COOKIE, cookie)
-  if check_parameter_in_http_header(check_parameter) and check_parameter not in settings.HOST.capitalize():
+  # The payload is carried by the header itself here - 'headers.do_check' leaves the header alone
+  # while its injection flag is set, so that this is the only value it is given.
+  if check_parameter_in_http_header(check_parameter, place):
     settings.CUSTOM_HEADER_NAME = check_parameter.title()
     if settings.CUSTOM_HEADER_VALUE.replace(settings.INJECT_TAG, "") in settings.CUSTOM_HEADER_VALUE:
       request.add_header(settings.CUSTOM_HEADER_NAME, settings.CUSTOM_HEADER_VALUE.replace(settings.INJECT_TAG, "").replace(settings.CUSTOM_HEADER_VALUE, payload).encode(settings.DEFAULT_CODEC))
@@ -179,7 +181,7 @@ def announce_heuristic_finding(possible_os):
 """
 Heuristic (basic) test for command injection
 """
-def command_injection_heuristic_basic(url, http_request_method, check_parameter):
+def command_injection_heuristic_basic(url, http_request_method, check_parameter, place):
   check_parameter = check_parameter.lstrip().rstrip()
   checks.perform_payload_modification(payload="")
   basic_payload_generator()
@@ -197,7 +199,7 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter)
         _ = 0
         for payload in basic_payloads:
           _ = _ + 1
-          response, url = heuristic_request(url, http_request_method, check_parameter, payload, whitespace)
+          response, url = heuristic_request(url, http_request_method, check_parameter, payload, whitespace, place)
           if type(response) is not bool and response is not None:
             html_data = checks.process_page_content(response, action="decode")
             match = re.search(settings.BASIC_COMMAND_INJECTION_RESULT, html_data)
@@ -226,7 +228,7 @@ The results-based test reads the sum back out of the response, so it is blind to
 '--oob' exists for. Without this, such a parameter is reported as probably not injectable - and with
 '--smart' it would be skipped outright.
 """
-def oob_heuristic_basic(url, http_request_method, check_parameter):
+def oob_heuristic_basic(url, http_request_method, check_parameter, place):
   from src.core.injections.blind.techniques.oob import oob_payloads as oob_payloads
 
   channel = checks.init_oob_channel()
@@ -244,7 +246,7 @@ def oob_heuristic_basic(url, http_request_method, check_parameter):
     payload, probes = oob_payloads.heuristic_payload(channel, target_os)
     if settings.VERBOSITY_LEVEL != 0:
       settings.print_data_to_stdout(settings.print_payload(payload))
-    heuristic_request(url, http_request_method, check_parameter, payload, settings.WHITESPACES[0])
+    heuristic_request(url, http_request_method, check_parameter, payload, settings.WHITESPACES[0], place)
     attempts.append((target_os, probes))
 
   # A name lookup beats an HTTPS round trip almost every time, so the client that answers first is
@@ -306,7 +308,7 @@ def oob_heuristic_basic(url, http_request_method, check_parameter):
 """
 Heuristic (basic) test for code injection warnings
 """
-def code_injections_heuristic_basic(url, http_request_method, check_parameter):
+def code_injections_heuristic_basic(url, http_request_method, check_parameter, place):
   check_parameter = check_parameter.lstrip().rstrip()
   injection_type = settings.INJECTION_TYPE.RESULTS_BASED_CE
   technique = settings.INJECTION_TECHNIQUE.DYNAMIC_CODE
@@ -316,7 +318,7 @@ def code_injections_heuristic_basic(url, http_request_method, check_parameter):
     whitespace = settings.SINGLE_WHITESPACE
     if (not settings.IDENTIFIED_WARNINGS and not settings.IDENTIFIED_PHPINFO):
       for payload in settings.PHPINFO_CHECK_PAYLOADS:
-        response, url = heuristic_request(url, http_request_method, check_parameter, payload, whitespace)
+        response, url = heuristic_request(url, http_request_method, check_parameter, payload, whitespace, place)
         if type(response) is not bool and response is not None:
           html_data = checks.process_page_content(response, action="decode")
           match = re.search(settings.CODE_INJECTION_PHPINFO, html_data)
@@ -428,10 +430,11 @@ def oob_command_injection_technique(url, timesec, filename, http_request_method)
 """
 Check parameter in HTTP header.
 """
-def check_parameter_in_http_header(check_parameter):
+def check_parameter_in_http_header(check_parameter, place):
   inject_http_headers = False
-  if any(x in check_parameter.lower() for x in settings.HTTP_HEADERS) or \
-     check_parameter.lower() in settings.CUSTOM_HEADER_NAME.lower():
+  # Answered from the place the parameter was dispatched from, never from what it is called: a
+  # field named after a header is still a field, and a header is one wherever its value came from.
+  if place in settings.HTTP_HEADER_PLACES:
     if settings.ACCEPT_VALUE not in settings.CUSTOM_HEADER_VALUE:
       inject_http_headers = True
   else:
@@ -583,7 +586,7 @@ def attempt_skip_testable_value(url, http_request_method, check_parameter):
 """
 Proceed to the injection process for the appropriate parameter.
 """
-def injection_process(url, check_parameter, http_request_method, filename, timesec):
+def injection_process(url, check_parameter, http_request_method, filename, timesec, place):
   settings.NOT_TESTABLE_PARAMETERS = False
 
   check_parameter_dynamism(url, http_request_method, check_parameter)
@@ -602,7 +605,7 @@ def injection_process(url, check_parameter, http_request_method, filename, times
         settings.LOAD_SESSION = None
       basic_level_checks()
 
-    inject_http_headers = check_parameter_in_http_header(check_parameter)
+    inject_http_headers = check_parameter_in_http_header(check_parameter, place)
 
     if inject_http_headers:
       checks.define_vulnerable_http_header(check_parameter)
@@ -657,7 +660,7 @@ def injection_process(url, check_parameter, http_request_method, filename, times
     else:
        settings.CHECKING_PARAMETER += str(the_type) + str(header_name) + str(inject_parameter)
 
-    if check_parameter in settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST and not http_request_method + ":" + check_parameter in settings.TESTED_PARAMETERS_LIST:
+    if check_parameter in settings.CUSTOM_INJECTION_MARKER_PARAMETERS_LIST and not checks.already_tested(place, check_parameter):
       settings.CHECKING_PARAMETER = "(custom) " + settings.CHECKING_PARAMETER
 
     if not settings.LOAD_SESSION:
@@ -676,16 +679,16 @@ def injection_process(url, check_parameter, http_request_method, filename, times
 
         try:
           if not (len(menu.options.tech) == 1 and "e" in menu.options.tech):
-            url = command_injection_heuristic_basic(url, http_request_method, check_parameter)
+            url = command_injection_heuristic_basic(url, http_request_method, check_parameter, place)
 
           # Asked for out-of-band, so probe the channel either way: whether the target can reach it
           # at all, and over which client, is a separate question from whether it is injectable.
           if menu.options.oob:
-            url = oob_heuristic_basic(url, http_request_method, check_parameter)
+            url = oob_heuristic_basic(url, http_request_method, check_parameter, place)
 
           if not settings.IDENTIFIED_COMMAND_INJECTION and "e" in menu.options.tech:
             # Check for identified warnings
-            url = code_injections_heuristic_basic(url, http_request_method, check_parameter)
+            url = code_injections_heuristic_basic(url, http_request_method, check_parameter, place)
         except KeyboardInterrupt:
           try:
             checks.handle_detection_interrupt(filename, url)
@@ -821,7 +824,7 @@ def http_headers_injection(url, http_request_method, filename, timesec):
     reset_flag = check_parameter != header_name
     if not reset_flag:
       try:
-        reset_flag = not injection_process(new_url, check_parameter, http_request_method, filename, timesec)
+        reset_flag = not injection_process(new_url, check_parameter, http_request_method, filename, timesec, getattr(settings, header_attr))
       except settings.NextParameterException:
         reset_flag = True
     if reset_flag:
@@ -830,19 +833,27 @@ def http_headers_injection(url, http_request_method, filename, timesec):
     # Restore the original option value
     setattr(menu.options, option_attr, original_value)
 
+  # If no specific test or skip parameters and no injection flags are set, test all headers
+  no_injection_flags = not settings.USER_AGENT_INJECTION and not settings.REFERER_INJECTION and not settings.HOST_INJECTION
+  no_test_or_skip = menu.options.test_parameter is None and menu.options.skip_parameter is None
+
   # Determine whether a header should be tested for injection
   def test_header(header_attr):
-    header_value = getattr(settings, header_attr).lower()
-
     # Check if the corresponding injection flag is already active
     if getattr(settings, header_attr.upper() + "_INJECTION"):
       return True
 
-    return checks.is_parameter_testable(header_value)
+    # A marker naming one header asks for that header - the others are reached only when nothing
+    # named a specific one, or the rest would be tested off the back of a request for this one.
+    if not no_injection_flags:
+      return False
 
-  # If no specific test or skip parameters and no injection flags are set, test all headers
-  no_injection_flags = not settings.USER_AGENT_INJECTION and not settings.REFERER_INJECTION and not settings.HOST_INJECTION
-  no_test_or_skip = menu.options.test_parameter is None and menu.options.skip_parameter is None
+    # Named as it is written: 'ua', 'useragent' and 'user-agent' all ask for the same header.
+    if settings.TESTABLE_PARAMETERS_LIST:
+      return checks.header_named(getattr(settings, header_attr), settings.TESTABLE_PARAMETERS_LIST)
+    if settings.SKIP_PARAMETERS_LIST:
+      return not checks.header_named(getattr(settings, header_attr), settings.SKIP_PARAMETERS_LIST)
+    return True
 
   # Test already-confirmed headers first, not in fixed order.
   headers = ["USER_AGENT", "REFERER", "HOST"]
@@ -936,7 +947,7 @@ def do_injection(found, data_type, url, http_request_method, filename, timesec):
   Return a unique identifier for the parameter by prefixing it with the data type.
   """
   def get_contextual_name(check_param):
-    return str(data_type) + ":" + str(check_param)
+    return checks.tested_parameter_name(data_type, check_param)
 
   """
   Perform the injection call and update tested parameters.
@@ -945,7 +956,8 @@ def do_injection(found, data_type, url, http_request_method, filename, timesec):
     contextual_name = get_contextual_name(check_param)
     url, check_param = define_check_parameter(found[index], url)
     url, check_param = check_for_stored_sessions(url, check_param, http_request_method)
-    injection_process(url, check_param, http_request_method, filename, timesec)
+    # Dispatched as a GET, POST or Cookie parameter, and tested as one whatever it is named.
+    injection_process(url, check_param, http_request_method, filename, timesec, data_type)
     settings.TESTED_PARAMETERS_LIST.append(contextual_name)
 
   check_parameters = []
@@ -1002,7 +1014,6 @@ def do_injection(found, data_type, url, http_request_method, filename, timesec):
 Check if HTTP Method is GET.
 """
 def get_request(url, http_request_method, filename, timesec):
-
   found_url = parameters.do_GET_check(url, http_request_method)
 
   if found_url != False:
@@ -1061,7 +1072,7 @@ def cookies_checks(url, http_request_method, filename, timesec):
 Perform checks over HTTP Headers parameters.
 """
 def headers_checks(url, http_request_method, filename, timesec):
-  if len([i for i in settings.TESTABLE_PARAMETERS_LIST if i in settings.HTTP_HEADERS]) != 0 or \
+  if checks.any_header_named(settings.TESTABLE_PARAMETERS_LIST) or \
     settings.INJECTION_MARKER_LOCATION.HTTP_HEADERS or \
     settings.HTTP_HEADERS_INJECTION:
     if not settings.SKIP_NON_CUSTOM_PARAMS:
@@ -1082,7 +1093,7 @@ def custom_headers_checks(url, http_request_method, filename, timesec):
       settings.CUSTOM_HEADER_VALUE = settings.CUSTOM_HEADERS_NAMES[name].split(": ")[1].replace(settings.ASTERISK_MARKER, settings.INJECT_TAG)
       url, check_parameter = check_for_stored_sessions(url, check_parameter, http_request_method)
       try:
-        if check_parameter != header_name or not injection_process(url, check_parameter, http_request_method, filename, timesec):
+        if check_parameter != header_name or not injection_process(url, check_parameter, http_request_method, filename, timesec, settings.CUSTOM_HEADER_PLACE):
           settings.CUSTOM_HEADER_INJECTION = False
       except settings.NextParameterException:
         settings.CUSTOM_HEADER_INJECTION = False
@@ -1198,22 +1209,8 @@ def perform_checks(url, http_request_method, filename):
         settings.COOKIE_INJECTION = True
         cookies_checks(url, http_request_method, filename, timesec)
 
-      # Prepare headers list to evaluate whether header injection should be attempted.
-      testable = settings.TESTABLE_PARAMETERS_LIST
-      if isinstance(testable, str):
-        testable = [testable]
-        
-      testable_lower = [t.lower() for t in testable if isinstance(t, str)]
-
-      header_flags = [
-        settings.USER_AGENT,
-        settings.REFERER,
-        settings.HOST
-      ]
-
-      # Check if any header flag is within the testable parameters list.
-      header_found = any(isinstance(h, str) and \
-                         h.lower() in testable_lower for h in header_flags)
+      # Whether a standard header was asked for by name, under any of the names it answers to.
+      header_found = checks.any_header_named(settings.TESTABLE_PARAMETERS_LIST)
 
       # Decide if header-based injection should be tested.
       header_check = (settings.TESTABLE_PARAMETERS_LIST or \

@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "111"
+REVISION = "112"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1655,6 +1655,18 @@ ACCEPT_VALUE = "*/*"
 # HTTP Headers
 HTTP_HEADERS = [ USER_AGENT.lower(), REFERER.lower(), HOST.lower() ]
 SHELLSHOCK_HTTP_HEADERS =[ COOKIE, USER_AGENT, REFERER ]
+
+# Where a payload is carried, named by whatever dispatched the parameter rather than worked out
+# from its name - a body field called 'host' is a body field, not the header it shares a name with.
+CUSTOM_HEADER_PLACE = "(custom) HEADER"
+HTTP_HEADER_PLACES = [ USER_AGENT, REFERER, HOST, CUSTOM_HEADER_PLACE ]
+
+# The names a standard header answers to, so '-p'/'--skip-parameter' can name one as it is written.
+HTTP_HEADER_ALIASES = {
+                        USER_AGENT : ( "ua", "useragent", "user-agent" ),
+                        REFERER : ( "ref", "referer", "referrer" ),
+                        HOST : ( "host", ),
+                      }
 
 IGNORE_JSON_CHAR_REGEX = r"[{}\"\[\]]"
 

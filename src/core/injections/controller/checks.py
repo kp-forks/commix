@@ -1790,9 +1790,40 @@ def check_provided_parameters():
   if menu.options.skip_parameter:
     settings.SKIP_PARAMETERS_LIST = parse_parameter_list(menu.options.skip_parameter)
 
+
 """
 -p is an exclusive allowlist, --skip a blocklist, neither given tests everything.
 """
+"""
+Whether a parameter has already been tested, in the place it is carried in.
+"""
+def already_tested(place, check_parameter):
+  return tested_parameter_name(place, check_parameter) in settings.TESTED_PARAMETERS_LIST
+
+"""
+What a parameter is remembered as - the place it is carried in and its name, so that the same name
+in two places is two parameters. Written and read through here, or the two drift apart.
+"""
+def tested_parameter_name(place, check_parameter):
+  return str(place) + ":" + str(check_parameter)
+
+"""
+Whether any of the given names asks for the header, under any of the names that header answers to.
+"""
+def header_named(header, names):
+  if not names:
+    return False
+  if isinstance(names, str):
+    names = [names]
+  wanted = [str(_).lower() for _ in names]
+  return any(alias in wanted for alias in settings.HTTP_HEADER_ALIASES.get(header, (header.lower(),)))
+
+"""
+Whether any standard header was asked for by name.
+"""
+def any_header_named(names):
+  return any(header_named(header, names) for header in settings.HTTP_HEADER_ALIASES)
+
 def is_parameter_testable(name):
   if settings.TESTABLE_PARAMETERS_LIST:
     return name in settings.TESTABLE_PARAMETERS_LIST

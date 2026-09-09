@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "112"
+REVISION = "113"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1515,6 +1515,11 @@ TIME_DELAY_STEP = 1
 MIN_TIME_RESPONSES = 30
 MAX_TIME_RESPONSES = 200
 RESPONSE_TIMES = []
+
+# Answers to the technique's own payload with a condition that cannot hold, kept apart from
+# the plain requests the model is warmed up with: those two cost different amounts.
+PROBE_RESPONSE_TIMES = []
+MIN_PROBE_RESPONSES = 5
 # Set once a time-related payload's own cost has been sampled into the model above.
 PAYLOAD_BASELINE_SAMPLED = False
 # Whether the model above was sampled the way the payloads that follow are sent - concurrently,

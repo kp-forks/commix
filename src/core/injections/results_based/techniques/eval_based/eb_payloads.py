@@ -36,7 +36,7 @@ def _print_statement(separator, commands, chain=None):
 Read a value off a Windows command that prints no newline of its own, such as 'set /a'.
 """
 def _windows_line(cmd):
-  return "for /f \"tokens=*\" %i in ('cmd /c \"" + cmd + "\"') do @echo %i"
+  return "for /f \"tokens=* eol=\" %i in ('cmd /c \"" + cmd + "\"') do @echo %i"
 
 """
 eval-based decision payload (check if host is vulnerable).

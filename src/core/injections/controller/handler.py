@@ -764,7 +764,7 @@ def do_time_related_process(url, timesec, filename, http_request_method, url_tim
           if probe:
             try:
               probe_time, _, _, _, _ = requests.perform_injection(prefix, suffix, whitespace, probe, "", http_request_method, url)
-              checks.record_baseline_response_time(probe_time)
+              checks.record_probe_response_time(probe_time)
             except (KeyboardInterrupt, SystemExit):
               raise
             except Exception:
@@ -864,7 +864,7 @@ def do_time_related_process(url, timesec, filename, http_request_method, url_tim
                   continue
               else:
                 # Feed the baseline model even during detection, not just later phases.
-                checks.record_baseline_response_time(exec_time)
+                checks.record_probe_response_time(exec_time)
                 checks.injection_process(injection_type, technique, i=num_of_chars, total=total)
                 continue
 

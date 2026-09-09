@@ -128,7 +128,11 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     if fan_out > 1 and not settings.CONCURRENT_BASELINE:
       settings.CONCURRENT_BASELINE = True
       del settings.RESPONSE_TIMES[:]
-    if len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES:
+    # What a probe costs is a property of the command being asked, so the previous one's sample is
+    # dropped rather than left to answer for this one.
+    del settings.PROBE_RESPONSE_TIMES[:]
+    if len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES or \
+       len(settings.PROBE_RESPONSE_TIMES) < settings.MIN_PROBE_RESPONSES:
       # Silent where the caller has just said what it is taking the model again for: the dots
       # carry on under that line instead of repeating it.
       if announce:
@@ -143,12 +147,13 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
         else:
           probe = payloads.cmd_execution(separator, cmd, safe_candidate, OUTPUT_TEXTFILE, timesec, http_request_method)
         exec_time, _, _, _, _ = requests.perform_injection(prefix, suffix, whitespace, probe, vuln_parameter, http_request_method, url)
-        checks.record_baseline_response_time(exec_time)
+        checks.record_probe_response_time(exec_time)
         # Skip dots in verbose mode; payload debug lines already show progress.
         if settings.VERBOSITY_LEVEL == 0:
           settings.print_data_to_stdout(".")
 
-      while len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES:
+      while len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES or \
+            len(settings.PROBE_RESPONSE_TIMES) < settings.MIN_PROBE_RESPONSES:
         try:
           if fan_out > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=fan_out) as executor:
@@ -229,7 +234,9 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       return
     if settings.ADJUST_TIME_DELAY_DISABLED or settings.ADJUST_TIME_DELAY_CHOICE == False:
       return
-    candidate = settings.TIME_DELAY_STEP + int(round(lower_limit))
+    # Never below the floor 'time_related_timesec()' holds every other caller to, or the
+    # delay is shortened past the point the payload's own cost can be told apart from it.
+    candidate = max(settings.TIME_DELAY_STEP + int(round(lower_limit)), checks.min_safe_timesec())
     with timesec_lock:
       delay_candidates.insert(0, candidate)
       del delay_candidates[settings.TIME_DELAY_CANDIDATES:]
@@ -269,7 +276,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
       length_suspect = True
     decision = checks.time_related_shell(url_time_response, exec_time, timesec)
     if not decision:
-      checks.record_baseline_response_time(exec_time)
+      checks.record_probe_response_time(exec_time)
     else:
       lower_limit = checks.current_delay_threshold()
       if lower_limit is not None:
@@ -304,7 +311,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
         checks.handle_exploitation_interrupt(filename, url)
       if cannot_hold is None or must_hold is None:
         return True
-      checks.record_baseline_response_time(cannot_hold)
+      checks.record_probe_response_time(cannot_hold)
       if must_hold - cannot_hold >= checks.injected_delay(timesec) / 2.0:
         return True
     return False
@@ -663,7 +670,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
           conn_error_flag = True
         decision = checks.time_related_shell(url_time_response, exec_time, local_timesec)
         if not decision:
-          checks.record_baseline_response_time(exec_time)
+          checks.record_probe_response_time(exec_time)
         else:
           lower_limit = checks.current_delay_threshold()
           if lower_limit is not None:
@@ -1067,7 +1074,7 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
         break
       delayed = checks.time_related_shell(url_time_response, exec_time, timesec)
       if not delayed:
-        checks.record_baseline_response_time(exec_time)
+        checks.record_probe_response_time(exec_time)
       if expect is not None and delayed != expect:
         verified = False
         break
@@ -1110,7 +1117,7 @@ def false_positive_check(separator, TAG, cmd, prefix, suffix, whitespace, timese
           return True
       else:
         consecutive_hits = 0
-        checks.record_baseline_response_time(exec_time)
+        checks.record_probe_response_time(exec_time)
     return False
 
   found_chars = _retry_confirm(payload)

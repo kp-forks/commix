@@ -1647,6 +1647,15 @@ def strip_time_outliers(values):
 """
 Feed a genuinely non-delayed response time into the rolling baseline model.
 """
+def record_probe_response_time(exec_time):
+  settings.PROBE_RESPONSE_TIMES.append(exec_time)
+  if len(settings.PROBE_RESPONSE_TIMES) > settings.MAX_TIME_RESPONSES:
+    settings.PROBE_RESPONSE_TIMES[:] = settings.PROBE_RESPONSE_TIMES[-(settings.MAX_TIME_RESPONSES // 2):]
+  record_baseline_response_time(exec_time)
+
+"""
+Record a plain request's response time
+"""
 def record_baseline_response_time(exec_time):
   settings.RESPONSE_TIMES.append(exec_time)
   if len(settings.RESPONSE_TIMES) > settings.MAX_TIME_RESPONSES:
@@ -1688,8 +1697,8 @@ def check_lagging():
 """
 Current adaptive delay threshold (mean + N*stdev of the baseline), or None if there's no data to compute a deviation from yet.
 """
-def current_delay_threshold():
-  sample = strip_time_outliers(settings.RESPONSE_TIMES)
+def _delay_threshold_from(times):
+  sample = strip_time_outliers(times)
   if len(sample) < 2:
     return None
   deviation = statistics.pstdev(sample)
@@ -1698,6 +1707,17 @@ def current_delay_threshold():
   mean = statistics.mean(sample)
   margin = max(settings.TIME_STDEV_COEFF * deviation, mean * settings.MIN_RELATIVE_DELAY_MARGIN)
   return max(settings.MIN_VALID_DELAYED_RESPONSE, mean + margin)
+
+def current_delay_threshold():
+  threshold = _delay_threshold_from(settings.RESPONSE_TIMES)
+  # The payload costs more than a plain request - on the file-based path, two PowerShell launches
+  # more. Measured against a model those plain requests are also in, the threshold lands under what
+  # the payload costs with nothing held back, and every probe then reads as delayed.
+  if len(settings.PROBE_RESPONSE_TIMES) >= settings.MIN_PROBE_RESPONSES:
+    probe_threshold = _delay_threshold_from(settings.PROBE_RESPONSE_TIMES)
+    if probe_threshold is not None:
+      threshold = probe_threshold if threshold is None else max(threshold, probe_threshold)
+  return threshold
 
 """
 Time related shell condition. Uses the adaptive threshold once available, else a fixed one.
@@ -2523,22 +2543,24 @@ def generate_char_pool(num_of_chars):
 Print powershell version
 """
 def print_ps_version(ps_version, filename, _):
-  try:
-    settings.PS_ENABLED = True
-    ps_version = "".join(str(p) for p in ps_version)
-    if settings.VERBOSITY_LEVEL == 0 and _:
-      settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
-    # Output PowerShell's version number
-    info_msg = "Powershell version: " + ps_version
-    settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
-    logs.add_line(filename, info_msg, group="info")
-    logs.report_set_info("powershell_version", ps_version)
-  except ValueError:
+  ps_version = "".join(str(p) for p in ps_version).strip()
+  if settings.VERBOSITY_LEVEL == 0 and _:
+    settings.print_data_to_stdout(settings.SINGLE_WHITESPACE)
+  # A version has a number in it, so an answer without one means the command never ran. Taken as a
+  # version it leaves PowerShell marked as available, and every payload needing it quietly weakens.
+  if not re.search(r"\d", ps_version):
     warn_msg = "Failed to identify the version of Powershell, "
     warn_msg += "which means some payloads or injection techniques may fail."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
     settings.PS_ENABLED = False
     ps_check_failed()
+    return
+  settings.PS_ENABLED = True
+  # Output PowerShell's version number
+  info_msg = "Powershell version: " + ps_version
+  settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
+  logs.add_line(filename, info_msg, group="info")
+  logs.report_set_info("powershell_version", ps_version)
 
 """
 Print hostname
@@ -2879,7 +2901,8 @@ def run_single_os_cmd(execute_cmd, filename):
 Print single OS command
 """
 def print_single_os_cmd(cmd, output, filename):
-  if len(output) > 1:
+  # One character is an answer too - 'echo A' was reported as having returned nothing.
+  if len(output) > 0:
     settings.print_data_to_stdout(settings.print_retrieved_data("Execution output", output))
     logs.executed_command(filename, cmd, output)
   else:
@@ -3669,7 +3692,7 @@ def use_temp_folder(no_result, url, timesec, filename, http_request_method, url_
 """
 Adjusts the timesec delay
 """
-def time_related_timesec():
+def min_safe_timesec():
   # Scale the floor by confirmed instability.
   if settings.UNSTABLE_REQUEST_CHOICE:
     min_safe_delay = max(settings.MIN_SAFE_TIMESEC_UNSTABLE, settings.UNSTABLE_REQUEST_BUMPS)
@@ -3677,6 +3700,13 @@ def time_related_timesec():
     min_safe_delay = settings.MIN_SAFE_TIMESEC
   if settings.URL_TIME_RESPONSE:
     min_safe_delay = max(min_safe_delay, settings.URL_TIME_RESPONSE + settings.TIME_DELAY_STEP * 2)
+  return min_safe_delay
+
+"""
+Adjusts the timesec delay
+"""
+def time_related_timesec():
+  min_safe_delay = min_safe_timesec()
   if settings.TIME_RELATED_ATTACK and settings.TIMESEC < min_safe_delay:
     if settings.VERBOSITY_LEVEL != 0 and min_safe_delay != settings.REPORTED_MIN_SAFE_TIMESEC:
       settings.REPORTED_MIN_SAFE_TIMESEC = min_safe_delay
@@ -3769,6 +3799,14 @@ that token.
 WINDOWS_TAIL = WINDOWS_CHAIN + "rem" + settings.SINGLE_WHITESPACE
 
 """
+The same tail, chained on whatever the payload itself started with. A payload that reaches for a
+second separator is blocked wherever only its own one gets through, and the separator then reads as
+not injectable.
+"""
+def windows_tail(chain):
+  return chain + "rem" + settings.SINGLE_WHITESPACE
+
+"""
 The same, for a POSIX shell: '#' starts a comment, so an unterminated quote or a leftover argument
 after the payload is read as one too, instead of swallowing the payload's own last token.
 """
@@ -3825,9 +3863,9 @@ def windows_probe(chain, cmd, operator, expected, timesec):
   # a pipe spawns for its right-hand side has no command extensions, and 'EQU'/'GEQ' are one - the
   # test then never runs, no delay is asked for, and the separator reads as not injectable.
   return (chain +
-          "for /f \"tokens=*\" %i in ('cmd /c " + cmd + "') do cmd /c if %i " + operator +
+          "for /f \"tokens=* eol=\" %i in ('cmd /c " + cmd + "') do cmd /c if %i " + operator +
           settings.SINGLE_WHITESPACE + str(expected) + settings.SINGLE_WHITESPACE +
-          windows_sleep(timesec) + WINDOWS_TAIL)
+          windows_sleep(timesec) + windows_tail(chain))
 
 """
 Report whether an interaction carries the result of the sum the payload asked the target to work

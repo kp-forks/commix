@@ -281,7 +281,7 @@ def proof(transport, plus=PLUS):
   elif settings.TARGET_OS == settings.OS.WINDOWS:
     # 'set /a' is the only arithmetic cmd.exe has and it only writes its answer out, so the sum is
     # worked out first and read into the variable the command is then built around.
-    prologue = ("for /f \"tokens=*\" %i in ('cmd /c \"set /a " + str(first) + plus + str(second) +
+    prologue = ("for /f \"tokens=* eol=\" %i in ('cmd /c \"set /a " + str(first) + plus + str(second) +
                 "\"') do ")
     return tag + "%i" + tag, tag + str(first + second) + tag, prologue
   elif settings.USE_BACKTICKS or settings.WAF_ENABLED:

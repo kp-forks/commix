@@ -300,7 +300,7 @@ def do_process(url, http_request_method):
         if _urllib.parse.urlparse(url).netloc in href:
           if (common.extract_regex_result(r"\A[^?]+\.(?P<result>\w+)(\?|\Z)", href) or "") not in settings.CRAWL_EXCLUDE_EXTENSIONS:
             if not re.search(r"\?(v=)?\d+\Z", href) and not re.search(r"(?i)\.(js|css)(\?|\Z)", href):
-              if menu.options.crawl_exclude and re.search(menu.options.crawl_exclude, href or ""):
+              if (menu.options.crawl_exclude and re.search(menu.options.crawl_exclude, href or "")) or not checks.in_scope(href):
                 if href not in visited_hrefs:
                   visited_hrefs.append(href)
                   if settings.VERBOSITY_LEVEL != 0:

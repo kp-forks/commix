@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "114"
+REVISION = "115"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1212,6 +1212,16 @@ IS_VALID_JSON = False
 # Infixes used for automatic recognition of parameters carrying anti-CSRF tokens
 CSRF_TOKEN_PARAMETER_INFIXES = ("csrf", "xsrf", "token")
 
+# Largest chunk built by the '--chunked' option, small enough to break up what a filter looks for.
+MAX_CHUNK_SIZE = 9
+# Tokens a chunk is not allowed to hold whole, so none of them is ever visible in a single chunk.
+CHUNKED_SPLIT_KEYWORDS = (
+  "cat", "echo", "ping", "wget", "curl", "nc", "bash", "sh", "python", "perl", "whoami", "uname",
+  "ifconfig", "ipconfig", "netstat", "dir", "type", "powershell", "cmd", "sleep", "timeout",
+  "passwd", "etc", "bin", "system32", "&&", "||", ";", "|", "`", "$(", "${"
+)
+CHUNKED_SPLIT_KEYWORDS_REGEX = "|".join(re.escape(_) for _ in CHUNKED_SPLIT_KEYWORDS)
+
 # Regular expression used for detecting JSON POST data
 JSON_RECOGNITION_REGEX = r'(?s)\A(\s*\[)*\s*\{.*"[^"]+"\s*:\s*("[^"]*"|\d+|true|false|null).*\}\s*(\]\s*)*\Z'
 
@@ -1344,6 +1354,8 @@ PROXY_LOG_REQUEST_REGEX = r"={10,}\s+([A-Z]{3,} .+?)\s+(={10,}|\Z)"
 PROXY_LOG_XML_REQUEST_REGEX = r'<port>(\d+)</port>.*?<request base64="true"><!\[CDATA\[([^]]+)'
 # Targets parsed from a file holding more than one request, tested one after the other.
 MULTI_REQUEST_TARGETS = []
+# Targets left out by the '--scope' option, reported once the target list is known.
+SKIPPED_OUT_OF_SCOPE = set()
 
 USER_APPLIED_TAMPER = ""
 
@@ -1658,6 +1670,7 @@ ACCEPT_ENCODING = "Accept-Encoding"
 AUTHORIZATION = "Authorization"
 CONTENT_LENGTH = "Content-Length"
 CONNECTION = "Connection"
+TRANSFER_ENCODING = "Transfer-Encoding"
 PROXY_CONNECTION = "Proxy-Connection"
 IF_MODIFIED_SINCE = "If-Modified-Since"
 IF_NONE_MATCH = "If-None-Match"

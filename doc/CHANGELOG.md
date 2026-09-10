@@ -1,4 +1,6 @@
 ## Version 4.2 (TBA)
+* Added: New `--chunked` switch to split POST data into HTTP chunked transfer-encoded requests.
+* Added: New `--scope` option to filter targets by regular expression.
 * Added: Support for testing multiple HTTP requests parsed from a single request or proxy log file.
 * Fixed: Only marked HTTP headers are tested, and GET/POST/cookie parameters named like a header (e.g. 'host') are no longer treated as headers.
 * Revised: Improved reliability across the supported injection techniques and modules, including out-of-band (OAST) detection and command execution support.

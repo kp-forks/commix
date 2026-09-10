@@ -375,7 +375,8 @@ def parse_target_line(line):
   if match:
     target = match.group(0)
     target = target.replace(settings.SINGLE_WHITESPACE, _urllib.parse.quote_plus(settings.SINGLE_WHITESPACE)).strip()
-    return target.rstrip()
+    target = target.rstrip()
+    return target if checks.in_scope(target) else None
   return None
 
 """
@@ -1049,6 +1050,23 @@ try:
         settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
         raise SystemExit()
 
+    # Only a request carrying a body can be split into chunks.
+    if menu.options.chunked and not any((menu.options.data, menu.options.requestfile, \
+       menu.options.logfile, menu.options.forms)):
+      err_msg = "The '--chunked' switch requires usage of POST data."
+      settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+      raise SystemExit()
+
+    if menu.options.scope:
+      try:
+        re.compile(menu.options.scope)
+      except Exception as e:
+        err_msg = "invalid regular expression '" + menu.options.scope + "' (" + str(e) + ")."
+        settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+        raise SystemExit()
+      info_msg = "Using regular expression '" + menu.options.scope + "' for filtering targets."
+      settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+
     if menu.options.forms and not settings.CRAWLING:
       err_msg = "The '--forms' switch requires the '--crawl' option."
       settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
@@ -1225,6 +1243,8 @@ try:
         summary_parts.append(str(len(clean_output_forms)) + " form" + "s"[len(clean_output_forms) == 1:])
       if summary_parts:
         info_msg = "Found a total of " + " and ".join(summary_parts) + "."
+        if settings.SKIPPED_OUT_OF_SCOPE:
+          info_msg += " Skipped " + str(len(settings.SKIPPED_OUT_OF_SCOPE)) + " target" + "s"[len(settings.SKIPPED_OUT_OF_SCOPE) == 1:] + " out of scope."
         settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
       # Test crawled POST forms first; their method/data are handled separately.

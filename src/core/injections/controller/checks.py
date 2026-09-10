@@ -3306,6 +3306,8 @@ def init_keep_alive():
     return
   if menu.options.http10:
     reason = "the HTTP/1.0 protocol"
+  elif menu.options.chunked:
+    reason = "chunked transfer-encoding"
   elif menu.options.proxy or menu.options.tor:
     reason = "a proxy"
   elif menu.options.auth_cred and menu.options.auth_type and menu.options.auth_type.lower() == settings.AUTH_TYPE.DIGEST:
@@ -4176,5 +4178,21 @@ def check_handler(value):
     return False
   settings.print_data_to_stdout("HANDLER => " + ("on" if settings.HANDLER else "off"))
   return True
+
+"""
+True when a target is within the scope given via the '--scope' option.
+"""
+def in_scope(url):
+  if not menu.options.scope or not url:
+    return True
+  if re.search(menu.options.scope, url, re.I):
+    return True
+  # A target can be met more than once (crawling, redirections), so count it just the once.
+  already_skipped = url in settings.SKIPPED_OUT_OF_SCOPE
+  settings.SKIPPED_OUT_OF_SCOPE.add(url)
+  if not already_skipped and settings.VERBOSITY_LEVEL != 0:
+    debug_msg = "Skipping out of scope target '" + url + "'."
+    settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
+  return False
 
 # eof

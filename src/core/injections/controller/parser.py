@@ -285,6 +285,8 @@ def parse_requests(request_file):
     target = _parse_request(request, request_file)
     if target is None:
       continue
+    if not checks.in_scope(target["url"]):
+      continue
     signature = _target_signature(target)
     if signature in seen:
       continue
@@ -292,6 +294,11 @@ def parse_requests(request_file):
     targets.append(target)
 
   if not targets:
+    # Saying the file is invalid would be wrong when it was the scope that emptied it.
+    if menu.options.scope and settings.SKIPPED_OUT_OF_SCOPE:
+      err_msg = "No target of the '" + os.path.split(request_file)[1] + "' file is within the given scope."
+      settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+      raise SystemExit()
     _invalid_data(request_file)
 
   return targets
@@ -314,6 +321,8 @@ def logfile_parser():
 
   if len(targets) > 1:
     info_msg = "Found a total of " + str(len(targets)) + " targets in the provided file."
+    if settings.SKIPPED_OUT_OF_SCOPE:
+      info_msg += " Skipped " + str(len(settings.SKIPPED_OUT_OF_SCOPE)) + " target" + "s"[len(settings.SKIPPED_OUT_OF_SCOPE) == 1:] + " out of scope."
     settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
   settings.MULTI_REQUEST_TARGETS = targets

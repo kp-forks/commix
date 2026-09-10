@@ -26,6 +26,7 @@ from src.utils import menu
 from src.utils import settings
 from src.core.injections.controller import checks
 from src.core.requests import proxy
+from src.core.requests import chunked
 from src.core.requests import redirection
 from src.core.requests import keepalive
 from src.core.requests import stability
@@ -139,6 +140,12 @@ def check_http_traffic(request):
     _http_client.HTTPConnection._http_vsn_str = 'HTTP/1.0'
 
   class connection(http_client):
+    def request(self, method, url, body=None, headers={}, **kwargs):
+      # The body is framed as chunks already, so the client must not frame it a second time.
+      if menu.options.chunked:
+        kwargs["encode_chunked"] = False
+      return http_client.request(self, method, url, body, headers, **kwargs)
+
     def send(self, req):
       # Decode request output safely, replacing non-UTF8 bytes instead of crashing.
       headers = req.decode(settings.DEFAULT_CODEC, errors="replace")
@@ -400,7 +407,12 @@ Check for added headers.
 def do_check(request):
 
   request = encode_non_ascii_url(request)
-  
+
+  # Frame the body as chunks, so a filter inspecting it never sees the payload in one piece.
+  if menu.options.chunked and request.data and not request.has_header(settings.TRANSFER_ENCODING):
+    request.data = chunked.split_post_data(request.data.decode(settings.DEFAULT_CODEC, errors="replace")).encode(settings.DEFAULT_CODEC)
+    request.add_unredirected_header(settings.TRANSFER_ENCODING, "chunked")
+
   # Check if defined any Cookie HTTP header.
   if menu.options.cookie and not settings.COOKIE_INJECTION:
     request.add_header(settings.COOKIE, checks.remove_tags(menu.options.cookie))

@@ -189,6 +189,11 @@ target.add_option("--crawl-exclude",
                 default=None,
                 help="Regexp to exclude pages from crawling (e.g. 'logout').")
 
+target.add_option("--scope",
+                dest="scope",
+                default=None,
+                help="Regexp to filter targets (e.g. '(www)?\\.target\\.(com|net|org)').")
+
 target.add_option("--forms",
                 dest="forms",
                 action="store_true",
@@ -322,6 +327,12 @@ request.add_option("--force-ssl",
                 dest="force_ssl",
                 default=False,
                 help="Force usage of SSL/HTTPS.")
+
+request.add_option("--chunked",
+                action="store_true",
+                dest="chunked",
+                default=False,
+                help="Use HTTP chunked transfer encoded (POST) requests.")
 
 request.add_option("--ignore-proxy",
                 action="store_true",

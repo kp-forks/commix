@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "113"
+REVISION = "114"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1338,6 +1338,13 @@ DIGEST_AUTH_REALM = None
 
 RAW_HTTP_HEADERS = ""
 
+# Request blocks of a proxy log export, delimited by rows of '=' and starting on a method token.
+PROXY_LOG_REQUEST_REGEX = r"={10,}\s+([A-Z]{3,} .+?)\s+(={10,}|\Z)"
+# Requests of an XML history export, stored base64-encoded with the port kept apart.
+PROXY_LOG_XML_REQUEST_REGEX = r'<port>(\d+)</port>.*?<request base64="true"><!\[CDATA\[([^]]+)'
+# Targets parsed from a file holding more than one request, tested one after the other.
+MULTI_REQUEST_TARGETS = []
+
 USER_APPLIED_TAMPER = ""
 
 # Tamper payload modification letters
@@ -1650,6 +1657,10 @@ ACCEPT = "Accept"
 ACCEPT_ENCODING = "Accept-Encoding"
 AUTHORIZATION = "Authorization"
 CONTENT_LENGTH = "Content-Length"
+CONNECTION = "Connection"
+PROXY_CONNECTION = "Proxy-Connection"
+IF_MODIFIED_SINCE = "If-Modified-Since"
+IF_NONE_MATCH = "If-None-Match"
 CONTENT_TYPE = "Content-Type"
 SERVER = "Server"
 SET_COOKIE = "Set-Cookie"

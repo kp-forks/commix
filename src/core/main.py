@@ -427,6 +427,48 @@ def prompt_skip_vulnerable_host(target_url):
     common.prompt_yes_no_setting(message, "SKIP_VULNERABLE_HOST", default="Y")
 
 """
+Test, one after the other, every request parsed from a request / proxy log file.
+"""
+def scan_parsed_targets(os_checks_num):
+  # The scan reads these where the single-target flow leaves them, at module level.
+  global response, url, filename
+  targets = settings.MULTI_REQUEST_TARGETS
+  filename = None
+  for target_num, target in enumerate(targets, start=1):
+    parser.apply_target(target)
+    url = menu.options.url
+    http_request_method = checks.check_http_method(url)
+    settings.print_data_to_stdout(settings.print_message("[" + str(target_num) + "/" + str(len(targets)) + "] URL - " + http_request_method + " " + url))
+    if check_for_injected_url(url):
+      prompt_skip_vulnerable_host(url)
+      if settings.SKIP_VULNERABLE_HOST:
+        info_msg = "Skipping URL '" + url + "'."
+        settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+        continue
+      settings.SKIP_VULNERABLE_HOST = None
+    if os_checks_num == 0:
+      settings.INIT_TEST = True
+    # Reset the injection level
+    if settings.INJECTION_LEVEL > settings.HTTP_HEADER_INJECTION_LEVEL:
+      settings.INJECTION_LEVEL = 1
+    # Skip upfront detection-only probes below when a stored technique already exists.
+    settings.LIKELY_RESUME = session_handler.has_any_stored_technique(url, http_request_method)
+    init_injection(url)
+    try:
+      response, url = url_response(url, http_request_method)
+      if response != False:
+        filename = logs.logs_filename_creation(url)
+        session_handler.restore_waf_status(url)
+        main(filename, url, http_request_method)
+      else:
+        err_msg = "Unable to establish a connection with the target URL."
+        settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+    except KeyboardInterrupt:
+      checks.handle_early_interrupt(filename, url)
+    except (Exception, SystemExit):
+      pass
+
+"""
 Check if value is inside boundaries
 """
 def check_value_inside_boundaries(url, http_request_method):
@@ -1062,6 +1104,12 @@ try:
         settings.URL_PARAM_DELIMITER = menu.options.pdel
         
     http_request_method  = checks.check_http_method(url)
+    # A request / proxy log file holding more than one request is tested target by target.
+    if len(settings.MULTI_REQUEST_TARGETS) > 1 and not settings.CRAWLING:
+      settings.MULTI_TARGETS = True
+      menu.options.batch = True
+      scan_parsed_targets(os_checks_num)
+      raise SystemExit()
     if not settings.STDIN_PARSING and not menu.options.bulkfile and not settings.CRAWLING:
       if os_checks_num == 0:
         settings.INIT_TEST = True

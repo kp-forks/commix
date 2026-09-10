@@ -261,6 +261,9 @@ def write_report():
   settings.REPORT_JSON["finished"] = str(date.today()) + settings.SINGLE_WHITESPACE + datetime.now().strftime("%H:%M:%S")
   settings.REPORT_JSON["requests"] = settings.TOTAL_OF_REQUESTS
   settings.REPORT_JSON["target_os"] = settings.TARGET_OS.title()
+  # Without these a finding reached through evasion reads the same as one against an open target.
+  settings.REPORT_JSON["waf_detected"] = settings.WAF_ENABLED
+  settings.REPORT_JSON["evasion_applied"] = settings.WAF_EVASION_APPLIED or menu.options.tamper or ""
   try:
     with open(menu.options.report_json, 'w', encoding=settings.DEFAULT_CODEC) as output_file:
       json.dump(settings.REPORT_JSON, output_file, indent=2, ensure_ascii=False)

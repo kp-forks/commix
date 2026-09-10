@@ -757,18 +757,31 @@ def injection_process(url, check_parameter, http_request_method, filename, times
         _run_file_based,
         lambda: oob_command_injection_technique(url, timesec, filename, http_request_method),
       ]
-      technique_idx = 0
-      while technique_idx < len(techniques):
-        try:
-          techniques[technique_idx]()
-          technique_idx += 1
-        except settings.SkipTechniqueException:
-          technique_idx += 1
-        except settings.RetryTechniqueException:
-          pass
-        except settings.EndDetectionPhaseException:
-          end_detection = True
-          break
+      def _run_techniques():
+        technique_idx = 0
+        while technique_idx < len(techniques):
+          try:
+            techniques[technique_idx]()
+            # The evasion was stepped up while this ran, so the technique never got a fair try.
+            if settings.WAF_EVASION_ESCALATED:
+              settings.WAF_EVASION_ESCALATED = False
+              continue
+            technique_idx += 1
+          except settings.SkipTechniqueException:
+            technique_idx += 1
+          except settings.RetryTechniqueException:
+            pass
+          except settings.EndDetectionPhaseException:
+            return True
+        return False
+
+      end_detection = _run_techniques()
+      # Nothing got through while a protection is in the way, so reach for a heavier evasion and
+      # give the techniques another go - being blocked throughout is the answer this waits for.
+      while not end_detection and checks.injection_techniques_status() == False and \
+            settings.WAF_ENABLED and checks.escalate_waf_evasion(on_block=False):
+        settings.WAF_EVASION_ESCALATED = False
+        end_detection = _run_techniques()
 
       # All injection techniques seems to be failed!
       if checks.injection_techniques_status() == False:

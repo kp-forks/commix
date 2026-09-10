@@ -92,6 +92,9 @@ def detect_waf(err_code):
       settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
       settings.WAF_ENABLED = True
       persist_waf_finding()
+    else:
+      # Already evading and still blocked, so what is in use is not enough.
+      escalate_waf_evasion()
     return True
   return False
 
@@ -1982,6 +1985,81 @@ def tamper_check_space2plus_conflict(tamper_name):
     err_msg = "Tamper script '" + tamper_name + "' is unlikely to work when combined with the tamper script 'space2plus'."
     settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
     raise SystemExit()
+
+"""
+Whether to answer the detected WAF/IPS with evasion, asked once and kept for the rest of the run.
+A tamper script provided by the user is left alone - the combination is their call, not ours.
+"""
+def waf_evasion_consent():
+  if settings.WAF_EVASION_CONSENT is None:
+    # The evasion is only ours to choose while the user has not chosen one of their own.
+    if not settings.WAF_ENABLED or menu.options.skip_waf or settings.USER_APPLIED_TAMPER or menu.options.tamper:
+      return False
+    message = "Do you want commix to try bypassing it? [Y/n] "
+    settings.WAF_EVASION_CONSENT = common.read_input(message, default="Y", check_batch=True).lower() != "n"
+  return settings.WAF_EVASION_CONSENT
+
+"""
+Frame the payload as chunks, which hides it from a filter without changing what the target
+receives. This says nothing about the target's operating system, so it can be used right away.
+"""
+def apply_waf_transport_evasion():
+  if menu.options.chunked or not settings.USER_DEFINED_POST_DATA or not waf_evasion_consent():
+    return False
+  menu.options.chunked = True
+  settings.WAF_EVASION_APPLIED = "chunked"
+  # Persistent connections cannot carry a chunked body, so that choice has to be revisited.
+  init_keep_alive()
+  info_msg = "Turning on chunked transfer-encoding, to get the payload past it."
+  settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+  return True
+
+"""
+Turn on the tamper scripts that suit the target, once its operating system is known.
+"""
+def waf_evasion_profiles():
+  return settings.WAF_EVASION_PROFILE["windows" if settings.TARGET_OS == settings.OS.WINDOWS else "unix"]
+
+def apply_waf_evasion():
+  if menu.options.tamper or not waf_evasion_consent():
+    return
+
+  profile = waf_evasion_profiles()[settings.WAF_EVASION_TIER]
+  menu.options.tamper = profile
+  settings.WAF_EVASION_APPLIED = (settings.WAF_EVASION_APPLIED + "," + profile).strip(",")
+  # The combination was chosen on purpose here, so the warning about their number does not apply.
+  settings.TAMPER_WARNING_SHOWN = True
+  info_msg = "Turning on the '" + profile.replace(",", "', '") + "' tamper scripts, to get the payload past it."
+  settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+
+"""
+Step the evasion up a tier, when what is already tampered is still being blocked.
+"""
+def escalate_waf_evasion(on_block=True):
+  if not settings.WAF_EVASION_APPLIED or not settings.WAF_EVASION_CONSENT:
+    return False
+  # A blocked response is counted, while techniques having run out speaks for itself.
+  if on_block:
+    settings.WAF_BLOCKS_SINCE_EVASION += 1
+    if settings.WAF_BLOCKS_SINCE_EVASION < settings.WAF_ESCALATION_THRESHOLD:
+      return False
+
+  profiles = waf_evasion_profiles()
+  if settings.WAF_EVASION_TIER + 1 >= len(profiles):
+    return False
+
+  settings.WAF_BLOCKS_SINCE_EVASION = 0
+  settings.WAF_EVASION_TIER += 1
+  profile = profiles[settings.WAF_EVASION_TIER]
+  menu.options.tamper = profile
+  # The scripts in use are rebuilt from scratch, so the ones being replaced are not kept on.
+  settings.MULTI_ENCODED_PAYLOAD = []
+  tamper_scripts(stored_tamper_scripts=True)
+  settings.WAF_EVASION_APPLIED = ("chunked," if menu.options.chunked else "") + profile
+  settings.WAF_EVASION_ESCALATED = True
+  warn_msg = "Still being blocked, so stepping the evasion up to the '" + profile.replace(",", "', '") + "' tamper scripts."
+  settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+  return True
 
 """
 Tamper script checker

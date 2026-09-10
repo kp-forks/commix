@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "115"
+REVISION = "116"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1401,6 +1401,33 @@ class PRIORITY(object):
   LOWEST = -100
 
 # Tamper script pairs that cannot be combined.
+# Tamper scripts turned on by themselves once a WAF/IPS is found in front of the target.
+# One script per bypass class: the whitespace, the command names, the casing and the client address.
+# Only one of "uninitializedvariable" / "dollaratsigns" / "backslashes" can be used, they conflict.
+# Each tier is heavier than the one before, and every one is listed by descending priority.
+WAF_EVASION_PROFILE = {
+                  "unix" : [
+                    "randomcase,xforwardedfor,uninitializedvariable,space2ifs",
+                    "rev,randomcase,xforwardedfor,dollaratsigns,space2htab"
+                  ],
+                  "windows" : [
+                    "xforwardedfor,doublequotes,caret,space2vtab",
+                    "xforwardedfor,doublequotes,caret,space2htab"
+                  ]
+}
+# What the evasion actually turned on, so it is reported once and never applied twice.
+WAF_EVASION_APPLIED = ""
+# Whether the user agreed to the evasion, asked once and remembered for the rest of the run.
+WAF_EVASION_CONSENT = None
+# Which tier of the profile is in use, stepped up while the protection keeps blocking.
+WAF_EVASION_TIER = 0
+# Blocked responses seen since the last step up. A block reaching here already means the evasion
+# in use was not enough, so there is nothing to wait for.
+WAF_BLOCKS_SINCE_EVASION = 0
+WAF_ESCALATION_THRESHOLD = 1
+# Set when the evasion was just stepped up, so the technique that was blocked is tried again.
+WAF_EVASION_ESCALATED = False
+
 INCOMPATIBLE_TAMPER_SCRIPTS = [
                   # "\$" is a literal "$", so the escape kills the other script's "$@" / "${XX}".
                   ("backslashes", "dollaratsigns"),

@@ -304,6 +304,12 @@ def url_response(url, http_request_method):
   response = examine_request(conn_request, conn_url)
   if do_waf:
     settings.WAF_DETECTION_PHASE = False
+    # The probe being blocked is the detection doing its job, not the target being unreachable:
+    # answer the protection and reconnect with the request that was asked for.
+    if response is False and settings.WAF_ENABLED:
+      checks.apply_waf_transport_evasion()
+      _conn_start = time.time()
+      response = examine_request(request, url)
   if response is not False and response is not None:
     _conn_end = time.time()
     settings.INIT_CONNECTION_TIME = _conn_end - _conn_start
@@ -711,9 +717,12 @@ def main(filename, url, http_request_method):
             checks.user_defined_os()
         except (KeyError, AttributeError):
           pass
+        # A WAF/IPS was found in front of the target, so answer it before the payloads are built.
+        checks.apply_waf_evasion()
         # Load tamper scripts
         if menu.options.tamper:
-          settings.USER_APPLIED_TAMPER = menu.options.tamper
+          if not settings.WAF_EVASION_APPLIED:
+            settings.USER_APPLIED_TAMPER = menu.options.tamper
           checks.tamper_scripts(stored_tamper_scripts=False)
           # Prime whitespace-mutating tampers before capturing settings.WHITESPACES.
           checks.perform_payload_modification(payload="")

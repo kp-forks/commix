@@ -1,4 +1,6 @@
 ## Version 4.2 (TBA)
+* Added: New `--load-cookies` option to load cookies from a file in Netscape/wget format.
+* Added: New `--live-cookies` option to re-read cookies from a file before every request, following a session that is refreshed elsewhere.
 * Added: The JSON report now records whether a WAF/IPS was detected and which evasion was applied.
 * Fixed: A blocked WAF/IPS detection probe is no longer treated as an unreachable target.
 * Added: New `--chunked` switch to split POST data into HTTP chunked transfer-encoded requests.

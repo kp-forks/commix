@@ -251,6 +251,16 @@ request.add_option("--cookie",
                 dest="cookie",
                 help="HTTP Cookie header.")
 
+request.add_option("--load-cookies",
+                action="store",
+                dest="load_cookies",
+                help="File containing cookies in Netscape/wget format.")
+
+request.add_option("--live-cookies",
+                action="store",
+                dest="live_cookies",
+                help="Live cookies file used for loading up-to-date values.")
+
 request.add_option("--cookie-del",
                 action="store",
                 dest="cdel",

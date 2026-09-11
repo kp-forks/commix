@@ -26,6 +26,7 @@ from src.utils import menu
 from src.utils import settings
 from src.core.injections.controller import checks
 from src.core.requests import proxy
+from src.core.requests import cookies
 from src.core.requests import chunked
 from src.core.requests import redirection
 from src.core.requests import keepalive
@@ -306,7 +307,7 @@ def check_http_traffic(request):
       response_headers = str(response_headers).strip(settings.END_LINE.LF)
       # Handle server-set cookies.
       if not menu.options.drop_set_cookie:
-        checks.handle_server_cookies(response)
+        cookies.handle_server_cookies(response)
       print_http_response(response_headers, code, page)
       # Checks regarding a potential CAPTCHA protection mechanism.
       checks.captcha_check(page)
@@ -320,7 +321,7 @@ def check_http_traffic(request):
     # This is useful when handling exotic HTTP errors (i.e requests for authentication).
     except _urllib.error.HTTPError as err:
       if not menu.options.drop_set_cookie:
-        checks.handle_server_cookies(err)
+        cookies.handle_server_cookies(err)
       try:
         if getattr(err, 'fp', None) is None:
           raise AttributeError
@@ -364,7 +365,7 @@ def check_http_traffic(request):
 
     except _urllib.error.URLError as err:
       if not menu.options.drop_set_cookie:
-        checks.handle_server_cookies(err)
+        cookies.handle_server_cookies(err)
       reason = str(getattr(err, 'reason', 'Unknown error'))
       reason_parts = reason.split(settings.SINGLE_WHITESPACE)
       if len(reason_parts) > 2:
@@ -414,6 +415,10 @@ def do_check(request):
     request.add_unredirected_header(settings.TRANSFER_ENCODING, "chunked")
 
   # Check if defined any Cookie HTTP header.
+  # Whatever keeps the file up to date knows better than the value this run started with.
+  if menu.options.live_cookies and not settings.COOKIE_INJECTION:
+    menu.options.cookie = cookies.live_cookies()
+
   if menu.options.cookie and not settings.COOKIE_INJECTION:
     request.add_header(settings.COOKIE, checks.remove_tags(menu.options.cookie))
 

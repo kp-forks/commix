@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "116"
+REVISION = "117"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1004,6 +1004,8 @@ SET_OPTIONS = [
 
 # Delimiter used to separate individual cookies in the Cookie HTTP header
 COOKIE_PARAM_DELIMITER = ";"
+# Seconds spent waiting for the file of the '--live-cookies' option to hold something.
+LIVE_COOKIES_TIMEOUT = 120
 
 # Split parameter value
 PARAMETER_SPLITTING_REGEX = ","

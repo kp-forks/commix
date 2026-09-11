@@ -40,6 +40,7 @@ from src.core.requests import tor
 from src.core.requests import proxy
 from src.core.requests import headers
 from src.core.requests import requests
+from src.core.requests import cookies
 from src.core.requests import redirection
 from src.core.injections.controller import checks
 from src.core.injections.controller import parser
@@ -1065,6 +1066,16 @@ try:
       err_msg = "The '--chunked' switch requires usage of POST data."
       settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
       raise SystemExit()
+
+    for option, cookies_file in (("--load-cookies", menu.options.load_cookies), ("--live-cookies", menu.options.live_cookies)):
+      if cookies_file and not os.path.isfile(cookies_file):
+        err_msg = "It seems the '" + cookies_file + "' file, provided with the '" + option + "' option, does not exist."
+        settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+        raise SystemExit()
+
+    # The file keeps being read as it changes, so what it holds now would only be overwritten.
+    if menu.options.load_cookies and not menu.options.live_cookies:
+      menu.options.cookie = cookies.load_cookies()
 
     if menu.options.scope:
       try:

@@ -17,6 +17,7 @@ import re
 import json
 from src.utils import menu
 from src.utils import settings
+from src.core.requests import cookies
 from src.core.injections.controller import checks
 from src.thirdparty.six.moves import urllib as _urllib
 from src.thirdparty.flatten_json.flatten_json import flatten, unflatten_list
@@ -743,7 +744,7 @@ def do_cookie_check(cookie):
     if checks.ignore_anticsrf_parameter(cookie):
       return cookie
     # Ignoring the Google analytics cookie parameter.
-    if checks.ignore_google_analytics_cookie(cookie):
+    if cookies.ignore_google_analytics_cookie(cookie):
       return cookie
     # Check for empty values (in provided parameters).
     if checks.is_empty(multi_parameters, http_request_method=settings.COOKIE):
@@ -777,7 +778,7 @@ def do_cookie_check(cookie):
             all_params[param - 1] = ''.join(all_params[param - 1]).replace(settings.INJECT_TAG, "")
           continue
         # Ignoring the Google analytics cookie parameter.
-        if checks.ignore_google_analytics_cookie(all_params[param]):
+        if cookies.ignore_google_analytics_cookie(all_params[param]):
           continue
         # Replace the value of parameter with INJECT tag
         if len(value) == 0:

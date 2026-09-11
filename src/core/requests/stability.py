@@ -47,6 +47,31 @@ def connection_error_budget_exhausted():
 """
 Retry delay in seconds; 0 during timing attacks to avoid inflating exec_time.
 """
+"""
+Back off when the target answers as if it has had enough of us, and creep back once it stops.
+A time-related technique measures the very delay this changes, so it is left alone while one runs.
+"""
+def adapt_delay(blocked):
+  if settings.ADAPTIVE_DELAY_FROZEN:
+    return
+  if settings.TIME_RELATED_ATTACK:
+    # Freezing here, rather than skipping, keeps the baseline and the measurements comparable.
+    settings.ADAPTIVE_DELAY_FROZEN = True
+    return
+
+  if blocked:
+    settings.ADAPTIVE_DELAY_STREAK = 0
+    if settings.ADAPTIVE_DELAY < settings.MAX_ADAPTIVE_DELAY:
+      settings.ADAPTIVE_DELAY = min(settings.MAX_ADAPTIVE_DELAY, (settings.ADAPTIVE_DELAY * 2) or 1)
+      warn_msg = "The target is answering as if it is rate-limiting, so waiting "
+      warn_msg += str(settings.ADAPTIVE_DELAY) + " second" + "s"[settings.ADAPTIVE_DELAY == 1:] + " between requests."
+      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+  elif settings.ADAPTIVE_DELAY:
+    settings.ADAPTIVE_DELAY_STREAK += 1
+    if settings.ADAPTIVE_DELAY_STREAK >= settings.ADAPTIVE_DELAY_RECOVERY:
+      settings.ADAPTIVE_DELAY_STREAK = 0
+      settings.ADAPTIVE_DELAY -= 1
+
 def retry_delay_seconds():
   return 0 if settings.TIME_RELATED_ATTACK else settings.DELAY_RETRY
 
@@ -97,3 +122,5 @@ Mark the target URL reachable.
 """
 def mark_url_valid():
   settings.VALID_URL = True
+  # An answered request is the evidence that the backing off can start being given back.
+  adapt_delay(blocked=False)

@@ -768,6 +768,8 @@ parser.formatter.format_option_strings = type(parser.formatter.format_option_str
 
 option = parser.get_option("-h")
 option.help = option.help.capitalize().replace("Show this help message and exit", "Show help and exit.")
+# Listed by its short form alone, the way every other switch is, while '--help' keeps working.
+option._long_opts = []
 (options, args) = parser.parse_args()
 
 # Remember whether '--web-root' was explicitly supplied on the CLI

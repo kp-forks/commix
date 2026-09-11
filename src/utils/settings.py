@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "117"
+REVISION = "118"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1493,6 +1493,16 @@ HTTP_ERROR_CODES = [  BAD_REQUEST,
                       SERVICE_UNAVAILABLE,
                       GATEWAY_TIMEOUT
                     ]
+
+# Seconds added to the delay between requests, when the target answers as if it has had enough.
+ADAPTIVE_DELAY = 0
+# The delay stops moving once a time-related technique depends on it, since a delay that changed
+# between the baseline and the measurements would read as the delay the payload was asked for.
+ADAPTIVE_DELAY_FROZEN = False
+# Where the backing off stops, and how many answered requests it takes to give a second back.
+MAX_ADAPTIVE_DELAY = 8
+ADAPTIVE_DELAY_RECOVERY = 10
+ADAPTIVE_DELAY_STREAK = 0
 
 # HTTP status codes a WAF/IPS typically returns when it blocks a request.
 WAF_BLOCK_HTTP_CODES = [ FORBIDDEN_ERROR,

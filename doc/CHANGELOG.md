@@ -1,4 +1,6 @@
 ## Version 4.2 (TBA)
+* Added: The delay between requests is raised by itself when the target starts rate-limiting, and lowered again once it stops.
+* Added: Each identified injection point is now reported with a `curl` command that reproduces it.
 * Added: New `--load-cookies` option to load cookies from a file in Netscape/wget format.
 * Added: New `--live-cookies` option to re-read cookies from a file before every request, following a session that is refreshed elsewhere.
 * Added: The JSON report now records whether a WAF/IPS was detected and which evasion was applied.

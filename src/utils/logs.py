@@ -23,6 +23,7 @@ from datetime import datetime
 from src.utils import menu
 from src.utils import common
 from src.utils import settings
+from src.core.requests import reproduce
 from src.utils import session_handler
 from src.core.injections.controller import checks
 from src.thirdparty.six.moves import urllib as _urllib
@@ -201,15 +202,27 @@ def add_finding(filename, injection_type, technique, http_request_method, vuln_p
   payload = str(checks.url_decode(payload)).replace(settings.END_LINE.LF, settings.END_LINE.ESCAPED_LF)
   for line in checks.finding_summary_lines(technique, injection_type, payload, title):
     add_line(filename, settings.strip_ansi_codes(line), group="findings")
+  # Built here rather than when the report is written, since the cookies and headers move during a run.
+  command = reproduce.curl_command(menu.options.url, http_request_method, vuln_parameter, payload)
+  caveats = reproduce.curl_command_caveats() if command else []
+  if command:
+    add_line(filename, settings.strip_ansi_codes("  " + settings.SUB_CONTENT_SIGN_TYPE + "Reproduce: " + command), group="findings")
+    for caveat in caveats:
+      add_line(filename, settings.strip_ansi_codes("  " + settings.SUB_CONTENT_SIGN_TYPE + "Note: " + caveat[0].upper() + caveat[1:] + "."), group="findings")
   if report_active():
-    settings.REPORT_JSON.setdefault("findings", []).append({
+    finding = {
       "parameter": vuln_parameter,
       "http_method": http_request_method,
       "technique": checks.summary_technique_label(technique),
       "type": injection_type[0].upper() + injection_type[1:],
       "boundary": title,
       "payload": payload,
-    })
+    }
+    if command:
+      finding["reproduce"] = command
+      if caveats:
+        finding["reproduce_caveats"] = caveats
+    settings.REPORT_JSON.setdefault("findings", []).append(finding)
 
 """
 Add any executed command and

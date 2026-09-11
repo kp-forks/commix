@@ -129,8 +129,8 @@ def discover_digest_realm(url):
 Checking the HTTP Headers & HTTP/S Request.
 """
 def check_http_traffic(request):
-  # Delay in seconds between each HTTP request
-  time.sleep(int(settings.DELAY))
+  # Delay in seconds between each HTTP request, plus whatever backing off the target has earned.
+  time.sleep(int(settings.DELAY) + settings.ADAPTIVE_DELAY)
   if request.type == 'https':
     http_client = _http_client.HTTPSConnection
   else:

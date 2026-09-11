@@ -373,6 +373,10 @@ def request_failed(err_msg):
 
   stability.mark_url_invalid()
 
+  # Pacing is answered on its own: being told to slow down holds whether or not a WAF is looked for.
+  if str(getattr(err_msg, "code", None)) in settings.WAF_BLOCK_HTTP_CODES:
+    stability.adapt_delay(blocked=True)
+
   if not settings.FOLLOW_REDIRECT and getattr(err_msg, "code", None) in (301, 302, 303, 307):
     stability.mark_url_valid()
     return False

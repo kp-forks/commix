@@ -183,6 +183,9 @@ def do_GET_check(url, http_request_method):
           if checks.ignore_anticsrf_parameter(parameters) or checks.ignore_stateful_parameter(parameters):
             return urls_list
           if len(value) == 0:
+            # An empty or absent value is still an empty value, so '--skip-empty' applies here too.
+            if menu.options.skip_empty:
+              return urls_list
             parameters = parameters + settings.INJECT_TAG
           else:
             parameters = apply_tag_to_value(parameters, value)
@@ -322,7 +325,9 @@ def multi_params_get_value(param, all_params):
       flat = flatten(json.loads(all_params[param], object_pairs_hook=OrderedDict))
       value = json.dumps(list(flat.values())[0])
     except Exception:
-      value = re.findall(r'\:(.*)', all_params[param])
+      # The whitespace after the colon belongs to the document's layout, not to the value, and a
+      # value carrying it would no longer be found in the fragment it came from.
+      value = re.findall(r'\:\s*(.*)', all_params[param])
       if not value:
         value = all_params[param]
       value = ''.join(value)
@@ -387,7 +392,15 @@ def json_int_check(parameter, value):
 Detect the POST body's data format (JSON/XML/plain) and set the relevant settings.
 """
 def configure_post_data_format(parameter, http_request_method):
-  parameter = checks.process_custom_injection_data(parameter).replace("'","\"").replace(", ",",").replace(",\"", ", \"")
+  # The layout has to be read before anything rewrites it, and only from a body that is still
+  # the one the user supplied - later calls arrive with the injection tag already in place.
+  supplied = parameter if settings.INJECT_TAG not in parameter else None
+  parameter = checks.process_custom_injection_data(parameter)
+  # Single quotes and spacing are rewritten to make JSON-shaped data parseable, so that rewrite is
+  # only kept when the result is in fact JSON - a form body must reach the target as it was given.
+  json_shaped = parameter.replace("'","\"").replace(", ",",").replace(",\"", ", \"")
+  if checks.is_JSON_check(json_shaped) or checks.is_JSON_check(checks.check_quotes_json_data(json_shaped)):
+    parameter = json_shaped
   # Check if JSON Object.
   if checks.is_JSON_check(parameter) or checks.is_JSON_check(checks.check_quotes_json_data(parameter)):
     if checks.is_JSON_check(checks.check_quotes_json_data(parameter)):
@@ -396,6 +409,9 @@ def configure_post_data_format(parameter, http_request_method):
       data_type = "JSON"
       settings.IS_JSON = checks.process_data(data_type, http_request_method)
       settings.POST_DATA_PARAM_DELIMITER = ","
+      checks.warn_on_duplicate_json_keys(parameter)
+    if supplied is not None:
+      settings.JSON_FORMATTING = checks.json_formatting(supplied)
   # Check if XML Object.
   elif checks.is_XML_check(parameter):
     if not settings.IS_XML:
@@ -421,6 +437,9 @@ def split_post_parameters(parameter):
     if expanded_parameter != parameter:
       parameter = expanded_parameter
       menu.options.data = expanded_parameter
+    # The split below replaces the whitespace between tags, so keep it to rebuild the body later.
+    # It is read from the body as supplied, since by now the parameter may already carry delimiters.
+    settings.XML_TAG_SEPARATORS = re.findall(r">(\s*)<", settings.USER_DEFINED_POST_DATA or parameter)
     # Shield leaf elements before the ">"/"<" split below.
     parameter, _shielded = shield_xml_leaves(parameter)
     parameter = re.sub(r">\s*<", ">" + settings.POST_DATA_PARAM_DELIMITER + "<", parameter)
@@ -482,7 +501,12 @@ def handle_single_post_parameter(parameter, multi_parameters, http_request_metho
             if settings.IS_JSON and anchor not in parameter:
               anchor = ":" + value
             if settings.IS_JSON and anchor in parameter:
-              parameter = parameter.replace(anchor, anchor + settings.INJECT_TAG)
+              # A tag appended after the closing quote leaves the value untouched and the body
+              # invalid, so a quoted value takes the tag inside its own quotes.
+              if len(value) > 1 and value.startswith("\"") and value.endswith("\""):
+                parameter = parameter.replace(anchor, anchor[:-1] + settings.INJECT_TAG + "\"", 1)
+              else:
+                parameter = parameter.replace(anchor, anchor + settings.INJECT_TAG, 1)
             else:
               parameter = parameter.replace(value, value + settings.INJECT_TAG)
 
@@ -683,7 +707,9 @@ def prefixes(payload, prefix):
     prefix = pre_custom + prefix
   # Check if defined "--prefix" option.
   if menu.options.prefix and not settings.LOAD_SESSION:
-    if not menu.options.prefix in prefix:
+    # Containment is not the question: a boundary that happens to hold the same character is not
+    # the boundary the user asked for.
+    if not prefix.endswith(menu.options.prefix):
       prefix = prefix + menu.options.prefix 
 
   payload = prefix + payload
@@ -705,9 +731,9 @@ def suffixes(payload, suffix):
   if post_custom:
     if post_custom not in suffix:
       suffix = suffix + post_custom
-  # Check if defined "--suffix" option.
-  elif menu.options.suffix and not settings.LOAD_SESSION:
-    if not menu.options.suffix in suffix:
+  # Check if defined "--suffix" option, the way a prefix is handled just above.
+  if menu.options.suffix and not settings.LOAD_SESSION:
+    if not suffix.endswith(menu.options.suffix):
       suffix = suffix + menu.options.suffix
 
   payload = payload + suffix

@@ -568,7 +568,7 @@ def init_injection(payload, http_request_method, url):
       except ValueError:
         pass
     elif settings.IS_XML:
-      data = checks.process_injectable_value(_urllib.parse.unquote(payload), menu.options.data)
+      data = checks.restore_xml_layout(checks.process_injectable_value(_urllib.parse.unquote(payload), menu.options.data))
     else:
       data = checks.process_injectable_value(payload, menu.options.data)
     request = _urllib.request.Request(url, data.encode(settings.DEFAULT_CODEC), method=http_request_method)

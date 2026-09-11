@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "120"
+REVISION = "121"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1211,6 +1211,16 @@ XML_RECOGNITION_REGEX = r'(?s)\A\s*<[^>]+>(.+>)?\s*\Z'
 # JSON Data
 IS_JSON = False
 IS_VALID_JSON = False
+# Whether the URL fragment being dropped has already been reported.
+FRAGMENT_IGNORED = False
+# Whether repeated JSON keys have already been reported.
+DUPLICATE_JSON_KEYS_WARNED = False
+
+# Indentation and separators of the JSON body as supplied, so it is rebuilt the way it arrived.
+JSON_FORMATTING = (2, None)
+
+# Whitespace between the XML tags as supplied, so the body is rebuilt the way it arrived.
+XML_TAG_SEPARATORS = []
 
 # Parameters holding session or framework state: injecting into one of these does not test the
 # application, it logs the session out or makes the request invalid before it is even handled.

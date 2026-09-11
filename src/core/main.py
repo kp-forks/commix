@@ -360,6 +360,12 @@ def init_injection(url):
   settings.CUSTOM_FILENAME = ""
   settings.CONFIRMED_BOUNDARY = {}
 
+  # A whitespace chosen by a tamper suits the target it was chosen for, not the next one: start
+  # from the default and let the tampers in use pick again, for this target's operating system.
+  settings.WHITESPACES = [_urllib.parse.quote(settings.SINGLE_WHITESPACE)]
+  if menu.options.tamper:
+    checks.perform_payload_modification(payload="")
+
   # Reset web-root state
   settings.WEB_ROOT = ""
   settings.DEFAULT_WEB_ROOT = ""

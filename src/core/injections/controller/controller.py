@@ -141,7 +141,7 @@ def heuristic_request(url, http_request_method, check_parameter, payload, whites
     cookie = checks.remove_tags(menu.options.cookie).encode(settings.DEFAULT_CODEC)
 
   if not settings.IGNORE_USER_DEFINED_POST_DATA and menu.options.data and settings.INJECT_TAG in menu.options.data:
-    data = checks.process_injectable_value(payload, menu.options.data).encode(settings.DEFAULT_CODEC)
+    data = checks.restore_xml_layout(checks.process_injectable_value(payload, menu.options.data)).encode(settings.DEFAULT_CODEC)
   else:
     if settings.USER_DEFINED_POST_DATA:
       settings.USER_DEFINED_POST_DATA = checks.remove_tags(settings.USER_DEFINED_POST_DATA)

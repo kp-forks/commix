@@ -1322,6 +1322,13 @@ def check_url(url):
 Verify whether the URL scheme is HTTP or HTTPS.
 """
 def check_http_s(url):
+  # A fragment never leaves the client, so a payload placed after one would silently not be sent.
+  if "#" in url:
+    url, fragment = url.split("#", 1)
+    if fragment and not settings.FRAGMENT_IGNORED:
+      settings.FRAGMENT_IGNORED = True
+      warn_msg = "Ignoring the fragment ('#" + fragment + "') of the provided URL, since it is not sent to the target."
+      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
   url_split = check_url(url)
   if url_split.username and url_split.password and "@" in url_split.netloc:
     url = url.replace(url_split.netloc,url_split.netloc.split("@")[1])
@@ -2370,7 +2377,51 @@ Pretty-print data as valid JSON using 2-space indentation.
 """
 def format_json(data):
   nested_json_msg(data)
-  return json.dumps(data, indent=2, ensure_ascii=False)
+  indent, separators = settings.JSON_FORMATTING
+  return json.dumps(data, indent=indent, ensure_ascii=False, separators=separators)
+
+"""
+Put back the whitespace that sat between the XML tags, which the parameter split replaced.
+"""
+def restore_xml_layout(data):
+  if not settings.IS_XML or not settings.XML_TAG_SEPARATORS:
+    return data
+  separators = list(settings.XML_TAG_SEPARATORS)
+  # A payload of its own could add a boundary, and then the recorded layout no longer lines up.
+  if len(re.findall(r">\s*<", data)) != len(separators):
+    return data
+  return re.sub(r">\s*<", lambda match: ">" + separators.pop(0) + "<", data)
+
+"""
+A body that is reflowed no longer matches what the target was given, so keep the supplied layout.
+"""
+def json_formatting(data):
+  if settings.END_LINE.LF in data.strip():
+    return (2, None)
+  return (None, (", ", ": ") if ", " in data else (",", ":"))
+
+"""
+A repeated key cannot survive being parsed into an object, so warn rather than drop one quietly.
+"""
+def warn_on_duplicate_json_keys(data):
+  if settings.DUPLICATE_JSON_KEYS_WARNED:
+    return
+  seen, duplicates = set(), set()
+  def _hook(pairs):
+    for name, _ in pairs:
+      if name in seen:
+        duplicates.add(name)
+      seen.add(name)
+    return OrderedDict(pairs)
+  try:
+    json.loads(data, object_pairs_hook=_hook)
+  except Exception:
+    return
+  if duplicates:
+    settings.DUPLICATE_JSON_KEYS_WARNED = True
+    warn_msg = "The provided JSON data repeats the key" + "s"[len(duplicates) == 1:] + " '" + "', '".join(sorted(duplicates))
+    warn_msg += "'. Only the last occurrence of each is kept."
+    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 """
 Parsing and unflattening JSON data.

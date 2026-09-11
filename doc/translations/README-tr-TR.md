@@ -12,11 +12,10 @@
   <a href="https://github.com/commixproject/commix/actions/workflows/builds.yml"><img alt="Builds Tests" src="https://github.com/commixproject/commix/actions/workflows/builds.yml/badge.svg"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.7+" src="https://img.shields.io/badge/python-3.7+-yellow.svg"></a>
   <a href="https://github.com/commixproject/commix/blob/master/LICENSE.txt"><img alt="GPLv3 License" src="https://img.shields.io/badge/license-GPLv3-red.svg"></a>
-  <a href="https://github.com/commixproject/commix/issues?q=is%3Aissue+is%3Aclosed"><img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed-raw/commixproject/commix.svg?colorB=ff0000"></a>
   <a href="https://x.com/commixproject"><img alt="X" src="https://img.shields.io/badge/x-@commixproject-blue.svg"></a>
 </p>
 
-**Commix** ([comm]and [i]njection e[x]ploiter'ın kısaltması), **[Anastasios Stasinopoulos](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**) tarafından yazılan ve **[Komut enjeksiyonu](https://owasp.org/www-community/attacks/Command_Injection)** güvenlik açıklarının tespitini ve istismarını otomatikleştiren açık kaynaklı bir sızma testi aracıdır.
+**Commix** ([comm]and [i]njection e[x]ploiter'ın kısaltması), **[Anastasios Stasinopoulos](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**) tarafından yazılan ve **[Komut](https://owasp.org/www-community/attacks/Command_Injection)** (ve **[kod](https://owasp.org/www-community/attacks/Code_Injection)**) enjeksiyonu güvenlik açıklarının tespitini ve istismarını otomatikleştiren açık kaynaklı bir sızma testi aracıdır.
 
 ![Screenshot](https://commixproject.com/images/background.png)
 
@@ -39,7 +38,7 @@ Wiki'deki bazı özellikleri gösteren [ekran görüntüleri koleksiyonunu](http
 * **Geniş enjeksiyon yüzeyi** - GET/POST parametreleri, HTTP başlıkları, çerezler ve JSON/XML istek gövdeleri; ayrıca CGI hedefleri için `shellshock` modülü.
 * **Etkileşimli kabuklar** - hedef üzerinde `os_shell`, yerleşik `reverse_tcp` ve `bind_tcp` modları ve kurulan kabuk üzerinden dosya aktarımı (`download`/`upload`).
 * **Numaralandırma ve dosya erişimi** - geçerli kullanıcı, makine adı, yetkiler, sistem bilgileri, kullanıcılar ve parola özetleri; hedefte dosya okuma ve yazma.
-* **Filtre ve WAF atlatma** - birlikte kullanılabilen 22 tamper betiği, belirlenimci bir sırayla uygulanır.
+* **Filtre ve WAF atlatma** - birlikte kullanılabilen çok sayıda tamper betiği, belirlenimci bir sırayla uygulanır.
 * **Esnek hedefleme** - tek bir URL, site taraması, HTML formları, sitemap, proxy günlüğü, çoklu hedef dosyası, ham HTTP istek dosyası veya `stdin` girdisi.
 * **Kaldığı yerden devam eden taramalar** - sonuçlar hedef bazında bir oturum dosyasında saklanır ve JSON olarak dışa aktarılabilir.
 * **Geniş arka uç desteği** - PHP, Python, Perl, Ruby ve CGI; ASP.NET ve JSP için deneysel destek.

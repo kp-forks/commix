@@ -12,11 +12,10 @@
   <a href="https://github.com/commixproject/commix/actions/workflows/builds.yml"><img alt="Builds Tests" src="https://github.com/commixproject/commix/actions/workflows/builds.yml/badge.svg"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.7+" src="https://img.shields.io/badge/python-3.7+-yellow.svg"></a>
   <a href="https://github.com/commixproject/commix/blob/master/LICENSE.txt"><img alt="GPLv3 License" src="https://img.shields.io/badge/license-GPLv3-red.svg"></a>
-  <a href="https://github.com/commixproject/commix/issues?q=is%3Aissue+is%3Aclosed"><img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed-raw/commixproject/commix.svg?colorB=ff0000"></a>
   <a href="https://x.com/commixproject"><img alt="X" src="https://img.shields.io/badge/x-@commixproject-blue.svg"></a>
 </p>
 
-To **commix** (συντομογραφία [**comm**]and [**i**]njection e[**x**]ploiter) είναι πρόγραμμα ανοιχτού κώδικα, γραμμένο από τον **[Anastasios Stasinopoulos](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**), που αυτοματοποιεί την εύρεση και εκμετάλλευση ευπαθειών τύπου **[command injection](https://owasp.org/www-community/attacks/Command_Injection)**.
+To **commix** (συντομογραφία [**comm**]and [**i**]njection e[**x**]ploiter) είναι πρόγραμμα ανοιχτού κώδικα, γραμμένο από τον **[Anastasios Stasinopoulos](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**), που αυτοματοποιεί την εύρεση και εκμετάλλευση ευπαθειών τύπου **[command](https://owasp.org/www-community/attacks/Command_Injection)** (και **[code](https://owasp.org/www-community/attacks/Code_Injection)**) injection.
 
 ![Screenshot](https://commixproject.com/images/background.png)
 
@@ -39,7 +38,7 @@ To **commix** (συντομογραφία [**comm**]and [**i**]njection e[**x**]
 * **Ευρεία επιφάνεια εισαγωγής** - παράμετροι GET/POST, κεφαλίδες HTTP, cookies και σώματα αιτημάτων JSON/XML, καθώς και η μονάδα `shellshock` για στόχους CGI.
 * **Διαδραστικά κελύφη** - `os_shell` στον στόχο, ενσωματωμένες λειτουργίες `reverse_tcp` και `bind_tcp`, και μεταφορά αρχείων (`download`/`upload`) μέσα από το κέλυφος.
 * **Απαρίθμηση και πρόσβαση σε αρχεία** - τρέχων χρήστης, όνομα υπολογιστή, δικαιώματα, πληροφορίες συστήματος, χρήστες και κατακερματισμοί κωδικών· ανάγνωση και εγγραφή αρχείων στον στόχο.
-* **Παράκαμψη φίλτρων και WAF** - 22 συνδυάσιμα scripts παραποίησης (tamper), με ντετερμινιστική σειρά εφαρμογής.
+* **Παράκαμψη φίλτρων και WAF** - Πολλαπλά συνδυάσιμα scripts παραποίησης (tamper), με ντετερμινιστική σειρά εφαρμογής.
 * **Ευέλικτη στόχευση** - μεμονωμένο URL, ανίχνευση ιστότοπου (crawl), φόρμες HTML, sitemap, αρχείο καταγραφής proxy, αρχείο πολλαπλών στόχων, αρχείο ακατέργαστου αιτήματος HTTP ή είσοδος από `stdin`.
 * **Σαρώσεις με δυνατότητα συνέχισης** - τα αποτελέσματα αποθηκεύονται ανά στόχο σε αρχείο συνεδρίας και μπορούν να εξαχθούν σε JSON.
 * **Ευρεία υποστήριξη back-end** - PHP, Python, Perl, Ruby και CGI, με πειραματική υποστήριξη για ASP.NET και JSP.

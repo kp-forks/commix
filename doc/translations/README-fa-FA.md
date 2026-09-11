@@ -12,11 +12,10 @@
   <a href="https://github.com/commixproject/commix/actions/workflows/builds.yml"><img alt="Builds Tests" src="https://github.com/commixproject/commix/actions/workflows/builds.yml/badge.svg"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.7+" src="https://img.shields.io/badge/python-3.7+-yellow.svg"></a>
   <a href="https://github.com/commixproject/commix/blob/master/LICENSE.txt"><img alt="GPLv3 License" src="https://img.shields.io/badge/license-GPLv3-red.svg"></a>
-  <a href="https://github.com/commixproject/commix/issues?q=is%3Aissue+is%3Aclosed"><img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed-raw/commixproject/commix.svg?colorB=ff0000"></a>
   <a href="https://x.com/commixproject"><img alt="X" src="https://img.shields.io/badge/x-@commixproject-blue.svg"></a>
 </p>
 
-**کامیکس** (مخفف [**کام**]ند ا[**ی**]نجکشن ا[**کس**]پلویتر) یک ابزار متن‌باز تست‌نفوذ است که توسط **[آناستاسیوس استاسینوپولوس](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**) نوشته شده است که فرایند کشف و بهره‌برداری از آسیپ پذیری های **[کامند اینجکشن](https://owasp.org/www-community/attacks/Command_Injection)** را خودکار می‌کند.
+**کامیکس** (مخفف [**کام**]ند ا[**ی**]نجکشن ا[**کس**]پلویتر) یک ابزار متن‌باز تست‌نفوذ است که توسط **[آناستاسیوس استاسینوپولوس](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**) نوشته شده است که فرایند کشف و بهره‌برداری از آسیپ پذیری های **[کامند](https://owasp.org/www-community/attacks/Command_Injection)** (و **[کد](https://owasp.org/www-community/attacks/Code_Injection)**) اینجکشن را خودکار می‌کند.
 
 
 ![Screenshot](https://commixproject.com/images/background.png)
@@ -39,7 +38,7 @@
 * **سطح تزریق گسترده** - پارامترهای GET/POST، سرآیندهای HTTP، کوکی‌ها و بدنه درخواست‌های JSON/XML، به‌علاوه ماژول `shellshock` برای هدف‌های CGI.
 * **پوسته‌های تعاملی** - یک `os_shell` روی هدف، حالت‌های داخلی `reverse_tcp` و `bind_tcp`، و انتقال فایل (`download`/`upload`) از طریق پوسته برقرارشده.
 * **شمارش و دسترسی به فایل** - کاربر جاری، نام میزبان، سطوح دسترسی، اطلاعات سیستم، کاربران و درهم‌سازی گذرواژه‌ها؛ خواندن و نوشتن فایل روی هدف.
-* **دور زدن فیلترها و WAF** - ۲۲ اسکریپت tamper قابل ترکیب، که با ترتیبی قطعی اعمال می‌شوند.
+* **دور زدن فیلترها و WAF** - چندین اسکریپت tamper قابل ترکیب، که با ترتیبی قطعی اعمال می‌شوند.
 * **هدف‌گذاری انعطاف‌پذیر** - یک URL، پویش سایت، فرم‌های HTML، sitemap، گزارش پروکسی، فایل چندهدفی، فایل درخواست خام HTTP یا ورودی `stdin`.
 * **پویش‌های قابل ازسرگیری** - نتایج به تفکیک هدف در یک فایل نشست ذخیره می‌شوند و می‌توان آن‌ها را به JSON خروجی گرفت.
 * **پشتیبانی گسترده از بک‌اند** - PHP، Python، Perl، Ruby و CGI، با پشتیبانی آزمایشی از ASP.NET و JSP.

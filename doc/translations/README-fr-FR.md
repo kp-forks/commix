@@ -12,11 +12,10 @@
   <a href="https://github.com/commixproject/commix/actions/workflows/builds.yml"><img alt="Builds Tests" src="https://github.com/commixproject/commix/actions/workflows/builds.yml/badge.svg"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.7+" src="https://img.shields.io/badge/python-3.7+-yellow.svg"></a>
   <a href="https://github.com/commixproject/commix/blob/master/LICENSE.txt"><img alt="GPLv3 License" src="https://img.shields.io/badge/license-GPLv3-red.svg"></a>
-  <a href="https://github.com/commixproject/commix/issues?q=is%3Aissue+is%3Aclosed"><img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed-raw/commixproject/commix.svg?colorB=ff0000"></a>
   <a href="https://x.com/commixproject"><img alt="X" src="https://img.shields.io/badge/x-@commixproject-blue.svg"></a>
 </p>
 
-**Commix** (abréviation de [**comm**]and [**i**]njection e[**x**]ploiter) est un outil open source de test d'intrusion, écrit par [**Anastasios Stasinopoulos**](https://github.com/stasinopoulos) ([**@ancst**](https://x.com/ancst)), qui automatise la détection et l'exploitation des vulnérabilités de type [**command injection**](https://owasp.org/www-community/attacks/Command_Injection).
+**Commix** (abréviation de [**comm**]and [**i**]njection e[**x**]ploiter) est un outil open source de test d'intrusion, écrit par [**Anastasios Stasinopoulos**](https://github.com/stasinopoulos) ([**@ancst**](https://x.com/ancst)), qui automatise la détection et l'exploitation des vulnérabilités de type [**command**](https://owasp.org/www-community/attacks/Command_Injection) (et [**code**](https://owasp.org/www-community/attacks/Code_Injection)) injection.
 
 ![Screenshot](https://commixproject.com/images/background.png)
 
@@ -39,7 +38,7 @@ Vous pouvez consulter la [**collection de captures d'écran**](https://github.co
 * **Large surface d'injection** - paramètres GET/POST, en-têtes HTTP, cookies et corps de requête JSON/XML, ainsi que le module `shellshock` pour les cibles CGI.
 * **Shells interactifs** - un `os_shell` sur la cible, les modes intégrés `reverse_tcp` et `bind_tcp`, et le transfert de fichiers (`download`/`upload`) via le shell établi.
 * **Énumération et accès aux fichiers** - utilisateur courant, nom d'hôte, privilèges, informations système, utilisateurs et empreintes de mots de passe ; lecture et écriture de fichiers sur la cible.
-* **Contournement des filtres et des WAF** - 22 scripts de falsification (tamper) combinables, appliqués dans un ordre déterministe.
+* **Contournement des filtres et des WAF** - Plusieurs scripts de falsification (tamper) combinables, appliqués dans un ordre déterministe.
 * **Ciblage flexible** - une URL unique, une exploration du site, des formulaires HTML, un sitemap, un journal de proxy, un fichier de cibles multiples, un fichier de requête HTTP brute ou une entrée `stdin`.
 * **Analyses reprenables** - les résultats sont stockés par cible dans un fichier de session et peuvent être exportés en JSON.
 * **Large prise en charge des back-ends** - PHP, Python, Perl, Ruby et CGI, avec une prise en charge expérimentale d'ASP.NET et JSP.

@@ -12,11 +12,10 @@
   <a href="https://github.com/commixproject/commix/actions/workflows/builds.yml"><img alt="Builds Tests" src="https://github.com/commixproject/commix/actions/workflows/builds.yml/badge.svg"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.7+" src="https://img.shields.io/badge/python-3.7+-yellow.svg"></a>
   <a href="https://github.com/commixproject/commix/blob/master/LICENSE.txt"><img alt="GPLv3 License" src="https://img.shields.io/badge/license-GPLv3-red.svg"></a>
-  <a href="https://github.com/commixproject/commix/issues?q=is%3Aissue+is%3Aclosed"><img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed-raw/commixproject/commix.svg?colorB=ff0000"></a>
   <a href="https://x.com/commixproject"><img alt="X" src="https://img.shields.io/badge/x-@commixproject-blue.svg"></a>
 </p>
 
-**Commix** (kependekan dari [**comm**]and [**i**]njection e[**x**]ploiter) adalah alat pengujian penetrasi open source, yang ditulis oleh **[Anastasios Stasinopoulos](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**), yang mengotomatiskan deteksi dan eksploitasi kerentanan **[command injection](https://owasp.org/www-community/attacks/Command_Injection)**.
+**Commix** (kependekan dari [**comm**]and [**i**]njection e[**x**]ploiter) adalah alat pengujian penetrasi open source, yang ditulis oleh **[Anastasios Stasinopoulos](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**), yang mengotomatiskan deteksi dan eksploitasi kerentanan **[command](https://owasp.org/www-community/attacks/Command_Injection)** (dan **[code](https://owasp.org/www-community/attacks/Code_Injection)**) injection.
 
 ![Screenshot](https://commixproject.com/images/background.png)
 
@@ -39,7 +38,7 @@ Anda dapat mengunjungi [koleksi dari tangkapan layar](https://github.com/commixp
 * **Permukaan injeksi yang luas** - parameter GET/POST, header HTTP, cookie, dan body permintaan JSON/XML, serta modul `shellshock` untuk target CGI.
 * **Shell interaktif** - `os_shell` pada target, mode bawaan `reverse_tcp` dan `bind_tcp`, serta transfer berkas (`download`/`upload`) melalui shell yang telah terbentuk.
 * **Enumerasi dan akses berkas** - pengguna saat ini, nama host, hak akses, informasi sistem, daftar pengguna dan hash kata sandi; membaca dan menulis berkas pada target.
-* **Pengelakan filter dan WAF** - 22 skrip tamper yang dapat dikombinasikan, diterapkan dalam urutan yang deterministik.
+* **Pengelakan filter dan WAF** - Beberapa skrip tamper yang dapat dikombinasikan, diterapkan dalam urutan yang deterministik.
 * **Penentuan target yang fleksibel** - satu URL, penelusuran situs, formulir HTML, sitemap, log proxy, berkas berisi banyak target, berkas permintaan HTTP mentah, atau masukan `stdin`.
 * **Pemindaian yang dapat dilanjutkan** - hasil disimpan per target dalam berkas sesi dan dapat diekspor ke JSON.
 * **Dukungan back-end yang luas** - PHP, Python, Perl, Ruby dan CGI, dengan dukungan eksperimental untuk ASP.NET dan JSP.

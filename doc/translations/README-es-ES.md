@@ -12,11 +12,10 @@
   <a href="https://github.com/commixproject/commix/actions/workflows/builds.yml"><img alt="Builds Tests" src="https://github.com/commixproject/commix/actions/workflows/builds.yml/badge.svg"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.7+" src="https://img.shields.io/badge/python-3.7+-yellow.svg"></a>
   <a href="https://github.com/commixproject/commix/blob/master/LICENSE.txt"><img alt="GPLv3 License" src="https://img.shields.io/badge/license-GPLv3-red.svg"></a>
-  <a href="https://github.com/commixproject/commix/issues?q=is%3Aissue+is%3Aclosed"><img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed-raw/commixproject/commix.svg?colorB=ff0000"></a>
   <a href="https://x.com/commixproject"><img alt="X" src="https://img.shields.io/badge/x-@commixproject-blue.svg"></a>
 </p>
 
-**Commix** (abreviatura de [**comm**]and [**i**]njection e[**x**]ploiter) es una herramienta de pruebas de penetración de código abierto, escrita por **[Anastasios Stasinopoulos](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**), que automatiza la detección y explotación de vulnerabilidades de tipo **[command injection](https://owasp.org/www-community/attacks/Command_Injection)**.
+**Commix** (abreviatura de [**comm**]and [**i**]njection e[**x**]ploiter) es una herramienta de pruebas de penetración de código abierto, escrita por **[Anastasios Stasinopoulos](https://github.com/stasinopoulos)** (**[@ancst](https://x.com/ancst)**), que automatiza la detección y explotación de vulnerabilidades de tipo **[command](https://owasp.org/www-community/attacks/Command_Injection)** (y **[code](https://owasp.org/www-community/attacks/Code_Injection)**) injection.
 
 ![Screenshot](https://commixproject.com/images/background.png)
 
@@ -39,7 +38,7 @@ Puede visitar la **[colección de capturas de pantalla](https://github.com/commi
 * **Amplia superficie de inyección** - parámetros GET/POST, cabeceras HTTP, cookies y cuerpos de petición JSON/XML, además del módulo `shellshock` para objetivos CGI.
 * **Shells interactivas** - una `os_shell` en el objetivo, los modos integrados `reverse_tcp` y `bind_tcp`, y transferencia de archivos (`download`/`upload`) a través de la shell establecida.
 * **Enumeración y acceso a archivos** - usuario actual, nombre del host, privilegios, información del sistema, usuarios y hashes de contraseñas; lectura y escritura de archivos en el objetivo.
-* **Evasión de filtros y WAF** - 22 scripts de manipulación (tamper) combinables, aplicados en un orden determinista.
+* **Evasión de filtros y WAF** - Múltiples scripts de manipulación (tamper) combinables, aplicados en un orden determinista.
 * **Objetivos flexibles** - una única URL, un rastreo del sitio, formularios HTML, un sitemap, un registro de proxy, un archivo con varios objetivos, un archivo con una petición HTTP en bruto o entrada por `stdin`.
 * **Análisis reanudables** - los resultados se almacenan por objetivo en un archivo de sesión y pueden exportarse a JSON.
 * **Amplio soporte de back-end** - PHP, Python, Perl, Ruby y CGI, con soporte experimental para ASP.NET y JSP.

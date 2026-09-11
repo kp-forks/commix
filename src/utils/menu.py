@@ -67,11 +67,13 @@ general.add_option("--install",
 general.add_option("--version",
                 action="store_true",
                 dest="version",
+                default=False,
                 help="Show version number and exit.")
 
 general.add_option("--update",
                 action="store_true",
                 dest="update",
+                default=False,
                 help="Check for updates (apply if any) and exit.")
 
 general.add_option("--output-dir",
@@ -88,11 +90,13 @@ general.add_option("-s",
 general.add_option("--flush-session",
                 action="store_true",
                 dest="flush_session",
+                default=False,
                 help="Flush session files for current target.")
 
 general.add_option("--ignore-session",
                 action="store_true",
                 dest="ignore_session",
+                default=False,
                 help="Ignore results stored in session file.")
 
 general.add_option("-t",
@@ -133,6 +137,7 @@ general.add_option("--charset",
 general.add_option("--check-internet",
                 action="store_true",
                 dest="check_internet",
+                default=False,
                 help="Check internet connection before assessing the target.")
 
 general.add_option("--answers",
@@ -240,6 +245,12 @@ request.add_option("--random-agent",
                 dest="random_agent",
                 default=False,
                 help="Use a randomly selected HTTP User-Agent header.")
+
+request.add_option("--mobile",
+                action="store_true",
+                dest="mobile",
+                default=False,
+                help="Imitate smartphone through HTTP User-Agent header.")
 
 request.add_option("--param-del",
                 action="store",
@@ -369,6 +380,13 @@ request.add_option("--retries",
                 default=settings.MAX_RETRIES,
                 type="int",
                 help="Retries when the connection timeouts (Default: " + str(settings.MAX_RETRIES) + ").")
+
+request.add_option("--delay",
+                default=0,
+                action="store",
+                type="int",
+                dest="delay",
+                help="Seconds to delay between each HTTP request.")
 
 request.add_option("--drop-set-cookie",
                 action="store_true",
@@ -571,13 +589,6 @@ injection.add_option("--maxlen",
                 default=settings.MAXLEN,
                 help="Set the max length of output for time-related injection techniques (Default: " + str(settings.MAXLEN) + " chars).")
 
-injection.add_option("--delay",
-                default=0,
-                action="store",
-                type="int",
-                dest="delay",
-                help="Seconds to delay between each HTTP request.")
-
 injection.add_option("--time-sec",
                 default=0,
                 action="store",
@@ -706,12 +717,6 @@ misc.add_option("--skip-waf",
                 dest="skip_waf",
                 default=False,
                 help="Skip heuristic detection of WAF/IPS protection.")
-
-misc.add_option("--mobile",
-                action="store_true",
-                dest="mobile",
-                default=False,
-                help="Imitate smartphone through HTTP User-Agent header.")
 
 misc.add_option("--offline",
                 action="store_true",

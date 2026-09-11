@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "119"
+REVISION = "120"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -707,6 +707,7 @@ HTTP_HEADER_INJECTION_LEVEL = 3
 # The higher the value is, the higher the number of HTTP(s) requests are. (Default: 1)
 INJECTION_LEVEL = 0
 USER_APPLIED_LEVEL = False
+USER_APPLIED_RETRIES = False
 PERFORM_BASIC_SCANS = True
 
 # Default Temp Directory
@@ -1211,8 +1212,15 @@ XML_RECOGNITION_REGEX = r'(?s)\A\s*<[^>]+>(.+>)?\s*\Z'
 IS_JSON = False
 IS_VALID_JSON = False
 
+# Parameters holding session or framework state: injecting into one of these does not test the
+# application, it logs the session out or makes the request invalid before it is even handled.
+IGNORE_PARAMETERS = ("__VIEWSTATE", "__VIEWSTATEENCRYPTED", "__VIEWSTATEGENERATOR", "__EVENTARGUMENT",
+                     "__EVENTTARGET", "__EVENTVALIDATION", "__SCROLLPOSITIONX", "__SCROLLPOSITIONY",
+                     "__PREVIOUSPAGE", "ASPSESSIONID", "ASP.NET_SESSIONID", "JSESSIONID", "PHPSESSID",
+                     "SESSID", "CFID", "CFTOKEN")
+
 # Infixes used for automatic recognition of parameters carrying anti-CSRF tokens
-CSRF_TOKEN_PARAMETER_INFIXES = ("csrf", "xsrf", "token")
+CSRF_TOKEN_PARAMETER_INFIXES = ("csrf", "xsrf", "token", "nonce")
 
 # Largest chunk built by the '--chunked' option, small enough to break up what a filter looks for.
 MAX_CHUNK_SIZE = 9
@@ -1660,7 +1668,7 @@ BLOCKED_IP_REGEX = r"(?i)(\A|\b)ip\b.*\b(banned|blocked|block list|firewall)"
 BLOCKED_IP_DETECTED = None
 
 # Prefix for Google analytics cookie names
-GOOGLE_ANALYTICS_COOKIE_PREFIX = "__UTM"
+GOOGLE_ANALYTICS_COOKIE_REGEX = r"(?i)\A(_ga|_gid|_gat|_gcl_au|__utm[abcz])"
 
 # Default path for tamper scripts
 TAMPER_SCRIPTS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../',"core/tamper/")) + "/"
@@ -1771,6 +1779,8 @@ ABORT_CODE = []
 
 # Ignore on (problematic) HTTP error code (e.g. 401).
 IGNORE_CODE = []
+# HTTP error codes already warned about, kept apart from what the user chose to ignore.
+WARNED_HTTP_ERROR_CODES = set()
 
 # Default crawling depth
 DEFAULT_CRAWLING_DEPTH = 1

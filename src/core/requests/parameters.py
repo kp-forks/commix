@@ -180,7 +180,7 @@ def do_GET_check(url, http_request_method):
         # Check if defined the INJECT_TAG
         if settings.INJECT_TAG not in parameters:
           # Ignoring the anti-CSRF parameter(s).
-          if checks.ignore_anticsrf_parameter(parameters):
+          if checks.ignore_anticsrf_parameter(parameters) or checks.ignore_stateful_parameter(parameters):
             return urls_list
           if len(value) == 0:
             parameters = parameters + settings.INJECT_TAG
@@ -202,7 +202,7 @@ def do_GET_check(url, http_request_method):
             # Grab the value of parameter.
             value = multi_params_get_value(all_params[param])
             # Ignoring the anti-CSRF parameter(s).
-            if checks.ignore_anticsrf_parameter(all_params[param]):
+            if checks.ignore_anticsrf_parameter(all_params[param]) or checks.ignore_stateful_parameter(all_params[param]):
               if param > 0:
                 all_params[param - 1] = ''.join(all_params[param - 1]).replace(settings.INJECT_TAG, "")
               continue
@@ -464,7 +464,7 @@ def handle_single_post_parameter(parameter, multi_parameters, http_request_metho
       return parameter
     else:
       # Ignoring the anti-CSRF parameter(s).
-      if checks.ignore_anticsrf_parameter(parameter):
+      if checks.ignore_anticsrf_parameter(parameter) or checks.ignore_stateful_parameter(parameter):
         return parameter
       # Replace the value of parameter with INJECT_HERE tag
       if len(value) == 0:
@@ -523,7 +523,7 @@ def handle_multiple_post_parameters(parameter, multi_parameters, http_request_me
       # Grab the value of parameter.
       value = multi_params_get_value(param, all_params)
       # Ignoring the anti-CSRF parameter(s).
-      if checks.ignore_anticsrf_parameter(all_params[param]):
+      if checks.ignore_anticsrf_parameter(all_params[param]) or checks.ignore_stateful_parameter(all_params[param]):
         if param > 0:
           all_params[param - 1] = ''.join(all_params[param - 1]).replace(settings.INJECT_TAG, "")
         continue
@@ -741,7 +741,7 @@ def do_cookie_check(cookie):
   # Check if single paramerter is supplied.
   if len(multi_parameters) == 1:
     # Ignoring the anti-CSRF parameter(s).
-    if checks.ignore_anticsrf_parameter(cookie):
+    if checks.ignore_anticsrf_parameter(cookie) or checks.ignore_stateful_parameter(cookie):
       return cookie
     # Ignoring the Google analytics cookie parameter.
     if cookies.ignore_google_analytics_cookie(cookie):
@@ -773,7 +773,7 @@ def do_cookie_check(cookie):
         # Grab the value of cookie.
         value = multi_params_get_value(all_params[param])
         # Ignoring the anti-CSRF parameter(s).
-        if checks.ignore_anticsrf_parameter(all_params[param]):
+        if checks.ignore_anticsrf_parameter(all_params[param]) or checks.ignore_stateful_parameter(all_params[param]):
           if param > 0:
             all_params[param - 1] = ''.join(all_params[param - 1]).replace(settings.INJECT_TAG, "")
           continue

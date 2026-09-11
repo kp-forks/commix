@@ -35,8 +35,8 @@ class RedirectHandler(_urllib.request.HTTPRedirectHandler, object):
     if code in (301, 302, 303, 307):
       settings.REDIRECT_CODE = code
       if not settings.FOLLOW_REDIRECT:
-        if code not in settings.IGNORE_CODE:
-          settings.IGNORE_CODE.append(code)
+        # Not following a redirect is our own decision to remember, not one the user asked for.
+        settings.WARNED_HTTP_ERROR_CODES.add(int(code))
         return None
       # Preserve the original method, not HEAD.
       return Request(newurl.replace(' ', '%20'),

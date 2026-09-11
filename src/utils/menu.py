@@ -780,6 +780,9 @@ option._long_opts = []
 # Remember whether '--web-root' was explicitly supplied on the CLI
 settings.USER_APPLIED_WEB_ROOT = bool(options.web_root)
 
+# Remember whether '--retries' was explicitly supplied, since it carries a default of its own
+settings.USER_APPLIED_RETRIES = any(_ in sys.argv for _ in ("--retries",)) or any(_.startswith("--retries=") for _ in sys.argv)
+
 # Remember whether '--auth-cred'/'--auth-type' were explicitly supplied on the CLI
 settings.USER_APPLIED_AUTH_CRED = bool(options.auth_cred)
 settings.USER_APPLIED_AUTH_TYPE = bool(options.auth_type)

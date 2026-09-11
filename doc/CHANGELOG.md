@@ -1,4 +1,9 @@
 ## Version 4.2 (TBA)
+* Fixed: A parameter given with `-p` no longer stops anti-CSRF parameters from being skipped everywhere else.
+* Fixed: HTTP error codes met during a scan are no longer added to the list of codes given with `--ignore-code`.
+* Added: Parameters holding session or framework state (e.g. "__VIEWSTATE", "PHPSESSID") are skipped unless asked for by name.
+* Fixed: Recognition of anti-CSRF ("nonce") and Google Analytics ("_ga", "_gid", "_gat", "_gcl_au") parameters.
+* Fixed: The reduced number of retries for multiple targets is applied again.
 * Added: The delay between requests is raised by itself when the target starts rate-limiting, and lowered again once it stops.
 * Added: Each identified injection point is now reported with a `curl` command that reproduces it.
 * Added: New `--load-cookies` option to load cookies from a file in Netscape/wget format.
@@ -9,25 +14,25 @@
 * Added: New `--scope` option to filter targets by regular expression.
 * Added: Support for testing multiple HTTP requests parsed from a single request or proxy log file.
 * Fixed: Request file parsing preserves multi-line bodies and original header names.
-* Fixed: Only marked HTTP headers are tested, and GET/POST/cookie parameters named like a header (e.g. 'host') are no longer treated as headers.
+* Fixed: Only marked HTTP headers are tested, and GET/POST/cookie parameters named like a header (e.g. "host") are no longer treated as headers.
 * Revised: Improved reliability across the supported injection techniques and modules, including out-of-band (OAST) detection and command execution support.
 * Added: New `-o` switch to turn on all optimization switches.
-* Added: Persistent (Keep-Alive) connections are now used by default, with a new `--no-keep-alive' switch to opt out.
+* Added: Persistent (Keep-Alive) connections are now used by default, with a new `--no-keep-alive` switch to opt out.
 * Added: New `download` and `upload` commands in the `os_shell` mode, to transfer files during shell interaction.
-* Added: New `--report-json` switch to store run results to a JSON file.
+* Added: New `--report-json` option to store run results to a JSON file.
 * Added: New `--abort-on-empty` switch to abort data retrieval on empty results.
 * Revised: Renamed `--alter-shell` to `--interpreter` for clarity.
 * Added: New `--os-shell` switch to directly request a command shell.
-* Fixed: Improved crawling reliability against HTTPS targets.
+* Revised: Improved crawling reliability against HTTPS targets.
 * Revised: Improved stdin parsing to stream targets for use with piped/chained input.
-* Fixed: Improved detection engine reliability when choosing to continue testing.
+* Revised: Improved detection engine reliability when choosing to continue testing.
 * Fixed: Improved heuristic detection reliability to reduce false positives.
 * Revised: Improved tamper script reliability, deterministic execution order, and encoding/whitespace handling for more accurate detection.
 * Revised: Improved crawled form handling, including interactive review before testing and correct parameter-type labeling.
 * Fixed: Improved bind/reverse TCP shell payload generation, port/host validation, and IPv6 handling.
 * Fixed: Improved tamper script handling reliability, including duplicate/invalid input and error handling.
 * Fixed: Improved encoding handling reliability to prevent unhandled Unicode errors during scans.
-* Revised: Improved `--alter-shell` character extraction to bisect instead of scan linearly.
+* Revised: Improved `--interpreter` character extraction to bisect instead of scan linearly.
 * Added: Dynamic parameter detection to identify parameters whose values change between requests.
 * Fixed: Time-related techniques persist the skip-testable-value optimization across resumed sessions.
 * Fixed: Benign patterns like `Accept: */*` are no longer misdetected as a custom injection marker.
@@ -52,15 +57,15 @@
 * Added: New `--forms` switch to parse and test forms on the target URL (requires `--crawl`).
 * Revised: Improved stored-session resume handling.
 * Revised: Improved parameter parsing and injection point detection across all supported request formats.
-* Added: New `--threads` switch to support parallel data retrieval, reducing extraction time on supported techniques.
+* Added: New `--threads` option to support parallel data retrieval, reducing extraction time on supported techniques.
 * Revised: Refactored time-related techniques (i.e. "time-based", "tempfile-based") to use binary search for character extraction.
 * Revised: Refactored `--tor` proxy handling to route HTTP traffic using the configured URL scheme.
 * Added: Spanish translation of [README.md](https://github.com/commixproject/commix/blob/master/doc/translations/README-es-ES.md).
 * Added: French translation of [README.md](https://github.com/commixproject/commix/blob/master/doc/translations/README-fr-FR.md).
 * Removed: The local HTTP server functionality, previously used by the deprecated `--file-upload` option, has been removed.
-* Revised: The deprecated `--file-upload` option has been removed, as `--file-write` provides nearly identical functionality.
+* Removed: The deprecated `--file-upload` option has been removed, as `--file-write` provides nearly identical functionality.
 * Revised: Refactored `--time-sec` option to apply only to time-related techniques.
-* Revised: The deprecated `--tor-check` switch has been removed, and Tor connectivity is now handled internally with no separate check option.
+* Removed: The deprecated `--tor-check` switch has been removed, and Tor connectivity is now handled internally with no separate check option.
 * Revised: Improved handling of injectable parameters in JSON objects.
 * Revised: Refactored heuristic payload preprocessing to normalize randomized placeholders.
 * Added: Standardized JSON output formatting with 2-space indentation.

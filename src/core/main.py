@@ -134,11 +134,11 @@ Examine the request
 """
 def examine_request(request, url):
   # Retries when the connection timeouts.
-  if menu.options.retries:
+  if settings.USER_APPLIED_RETRIES:
     settings.MAX_RETRIES = menu.options.retries
-  else:
-    if settings.MULTI_TARGETS:
-      settings.MAX_RETRIES = 1
+  elif settings.MULTI_TARGETS:
+    # Spending every retry on one unreachable host would hold up all the others.
+    settings.MAX_RETRIES = 1
   try:
     response = headers.check_http_traffic(request)
     if response is not None:

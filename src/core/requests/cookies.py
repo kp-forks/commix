@@ -170,7 +170,7 @@ def handle_server_cookies(response):
 Ignoring the Google analytics cookie parameter.
 """
 def ignore_google_analytics_cookie(cookie):
-  if cookie.upper().startswith(settings.GOOGLE_ANALYTICS_COOKIE_PREFIX):
+  if re.search(settings.GOOGLE_ANALYTICS_COOKIE_REGEX, cookie):
     if (len(cookie.split("="))) == 2:
       info_msg = "Ignoring the Google analytics cookie parameter '" + cookie.split("=")[0] + "'."
       settings.print_data_to_stdout(settings.print_info_msg(info_msg))

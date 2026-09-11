@@ -699,14 +699,29 @@ def value_inside_boundaries(parameter, http_request_method):
 """
 Ignoring the anti-CSRF parameter(s).
 """
+def explicitly_testable(parameter):
+  # Asking for a parameter by name is asking for it to be tested, whatever it is called.
+  name = parameter.split("=")[0].strip().lower()
+  return any(name == _.split("=")[0].strip().lower() for _ in settings.TESTABLE_PARAMETERS_LIST)
+
 def ignore_anticsrf_parameter(parameter):
   if any(parameter.lower().count(token) for token in settings.CSRF_TOKEN_PARAMETER_INFIXES):
-    if not any(parameter for token in settings.TESTABLE_PARAMETERS_LIST):
+    if not explicitly_testable(parameter):
       if (len(parameter.split("="))) == 2:
         info_msg = "Ignoring the parameter '" + parameter.split("=")[0]
         info_msg += "' that appears to hold anti-CSRF token '" + parameter.split("=")[1] +  "'."
         settings.print_data_to_stdout(settings.print_info_msg(info_msg))
       return True
+
+"""
+Ignoring the parameter(s) carrying session or framework state.
+"""
+def ignore_stateful_parameter(parameter):
+  name = parameter.split("=")[0].strip()
+  if name.upper() in settings.IGNORE_PARAMETERS and not explicitly_testable(parameter):
+    info_msg = "Ignoring the parameter '" + name + "' that appears to hold session or framework state."
+    settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+    return True
 
 """
 Adapt newline characters in the payload depending on injection settings and OS.
@@ -1119,20 +1134,30 @@ def check_tcp_mode_result(option, other_mode):
     return 3
 
 """
+Whether an HTTP error code is one the user chose to ignore, with '--ignore-code'.
+"""
+def ignored_http_error_code(code):
+  try:
+    return int(code) in [int(_) for _ in settings.IGNORE_CODE]
+  except (TypeError, ValueError):
+    return False
+
+"""
 Ignore the error and continue testing; the choice is remembered for this code.
 """
 def continue_tests(err):
   # Ignoring (problematic) HTTP error codes.
-  if len(settings.IGNORE_CODE) != 0 and any(str(x) in str(err).lower() for x in settings.IGNORE_CODE):
+  if ignored_http_error_code(getattr(err, "code", None)):
     return True
 
   # Possible WAF/IPS
   try:
     detect_waf(err.code)
-    warn_msg = "The web server responded with an HTTP error code '" + str(err.code)
-    warn_msg += "' which could interfere with the results of the tests."
-    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
-    settings.IGNORE_CODE.append(err.code)
+    if int(err.code) not in settings.WARNED_HTTP_ERROR_CODES:
+      warn_msg = "The web server responded with an HTTP error code '" + str(err.code)
+      warn_msg += "' which could interfere with the results of the tests."
+      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+      settings.WARNED_HTTP_ERROR_CODES.add(int(err.code))
     return True
   except AttributeError:
     # No HTTP code (e.g. connection reset) - retry a bounded number of times.

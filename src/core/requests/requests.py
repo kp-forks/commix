@@ -469,11 +469,11 @@ def request_failed(err_msg):
       return True
     elif [True for err_code in settings.HTTP_ERROR_CODES if err_code in str(error_msg)]:
       status_code = [err_code for err_code in settings.HTTP_ERROR_CODES if err_code in str(error_msg)]
-      if not (len(settings.IGNORE_CODE) != 0 and any(str(x) in str(error_msg).lower() for x in settings.IGNORE_CODE)):
+      if not checks.ignored_http_error_code(status_code[0]) and int(status_code[0]) not in settings.WARNED_HTTP_ERROR_CODES:
         warn_msg = "The web server responded with an HTTP error code '" + str(status_code[0])
         warn_msg += "' which could interfere with the results of the tests."
         settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
-        settings.IGNORE_CODE.append(status_code[0])
+        settings.WARNED_HTTP_ERROR_CODES.add(int(status_code[0]))
       if not settings.NOT_FOUND_ERROR in str(err_msg).lower():
         return False
       return True
@@ -496,7 +496,7 @@ def request_failed(err_msg):
       return False
 
   elif settings.IDENTIFIED_WARNINGS or settings.IDENTIFIED_PHPINFO or settings.IDENTIFIED_COMMAND_INJECTION or \
-  (len(settings.IGNORE_CODE) != 0 and any(str(x) in str(error_msg).lower() for x in settings.IGNORE_CODE)):
+  any(checks.ignored_http_error_code(_) for _ in settings.HTTP_ERROR_CODES if _ in str(error_msg)):
     return False
 
   elif settings.IGNORE_ERR_MSG == False:

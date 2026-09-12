@@ -361,7 +361,16 @@ def _finish_response_time_estimate(diff, timesec):
     warn_msg += " data extraction."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
-  timesec = int(timesec)
+  # The payloads count the delay in whole seconds, so a fractional one cannot be used as given -
+  # rounded rather than dropped, and said out loud instead of quietly becoming a shorter delay.
+  if timesec != int(timesec):
+    rounded = int(round(timesec)) or 1
+    warn_msg = "The delay given with '--time-sec' (i.e. '" + str(timesec) + "') is counted in whole "
+    warn_msg += "seconds by the payloads, so '" + str(rounded) + "' is used instead."
+    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+    timesec = rounded
+  else:
+    timesec = int(timesec)
 
   settings.URL_TIME_RESPONSE = url_time_response
   return timesec, url_time_response
@@ -782,11 +791,8 @@ def application_identification(url, response=None):
 Detect the underlying operating system of the target server based on server headers.
 """
 def check_os(server_header):
-  identified_os = "unknown"
-  user_defined_os = None
-
-  if menu.options.os and checks.user_defined_os():
-    user_defined_os = settings.TARGET_OS
+  if menu.options.os:
+    checks.user_defined_os()
 
   for banner in settings.SERVER_OS_BANNERS:
     match = re.search(banner.lower(), server_header.lower())
@@ -795,32 +801,17 @@ def check_os(server_header):
         debug_msg = "Detecting the operating system hosting the target server."
         settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
 
-      settings.IDENTIFIED_TARGET_OS = True
-      settings.TARGET_OS = match.group(0)
+      checks.set_target_os(match.group(0))
 
-      if re.search(r"microsoft|win", settings.TARGET_OS, re.IGNORECASE):
-        identified_os = settings.OS.WINDOWS
-        settings.TARGET_OS = identified_os
-
-        if menu.options.os and user_defined_os != settings.OS.WINDOWS:
-          if checks.identified_os():
-            settings.TARGET_OS = user_defined_os
-
-        if menu.options.shellshock:
-          err_msg = "The shellshock module ('--shellshock') is not available for Windows targets."
-          settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
-          raise SystemExit()
-      else:
-        identified_os = "Unix-like" if settings.TARGET_OS.lower() == settings.OS.UNIX else settings.TARGET_OS
-
-        if menu.options.os and user_defined_os == settings.OS.WINDOWS:
-          if checks.identified_os():
-            settings.TARGET_OS = user_defined_os
+      if settings.TARGET_OS == settings.OS.WINDOWS and menu.options.shellshock:
+        err_msg = "The shellshock module ('--shellshock') is not available for Windows targets."
+        settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
+        raise SystemExit()
       break
 
   if settings.VERBOSITY_LEVEL != 0:
     if settings.IDENTIFIED_TARGET_OS:
-      debug_msg = "Underlying operating system identified as " + identified_os + "."
+      debug_msg = "Underlying operating system identified as " + checks.target_os_label() + "."
       settings.print_data_to_stdout(settings.print_bold_debug_msg(debug_msg))
 
 

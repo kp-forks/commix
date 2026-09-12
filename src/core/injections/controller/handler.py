@@ -135,6 +135,13 @@ def delete_previous_shell(separator, TAG, prefix, suffix, whitespace, http_reque
       else:
         cmd = settings.DEL + OUTPUT_TEXTFILE + settings.SINGLE_WHITESPACE + settings.COMMENT
     injector.injection(separator, TAG, cmd, prefix, suffix, whitespace, http_request_method, url, vuln_parameter, OUTPUT_TEXTFILE, interpreter, filename, technique)
+    # A delete that did not take must not be remembered as one, or the next run reports the file as
+    # already gone while it is still being served.
+    if checks.output_file_still_served():
+      warn_msg = "The file ('" + OUTPUT_TEXTFILE + "') is still being served by the target, so it "
+      warn_msg += "does not appear to have been deleted. Remove it by hand."
+      settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+      return
     session_handler.mark_file_deleted(url, technique, vuln_parameter, http_request_method)
 
 

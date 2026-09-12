@@ -77,6 +77,28 @@ def sha1_hash(text):
   return hashlib.sha1(text.encode('utf-8')).hexdigest()
 
 """
+How a stored row is matched to a URL: the address without its query string, either stored as it is
+or followed by one - so a row kept for '/abc' is not handed back for '/a'.
+"""
+def url_match(url):
+  base_url = split_url(url)
+  return "(url = ? OR url LIKE ? ESCAPE '\\')", (base_url, escape_like(base_url) + "?%")
+
+"""
+Restore a value the session stored, unless this run was given one of its own on the command line -
+what the user asked for now outranks what a previous run happened to be using.
+"""
+def restore_option(stored, applied, label):
+  if not stored or stored == "None":
+    return None
+  if applied and applied != stored:
+    warn_msg = ("The stored session was found using the " + label + " '" + stored + "', which differs "
+                "from the one provided now ('" + applied + "'). Keeping the one provided now.")
+    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
+    return None
+  return stored
+
+"""
 Map stored technique names to their "--technique" menu letters.
 """
 def technique_letter(technique_info):
@@ -104,7 +126,8 @@ safe table names (hex digits only).
 """
 def table_name(url):
   host = get_host_from_url(url)
-  hashed_host = sha1_hash(host)
+  # The layout stamp is hashed in with the host, so a table left by an earlier layout is not found.
+  hashed_host = sha1_hash(host + "|" + settings.SESSION_MILESTONE_VALUE)
   # Prefix 'session_' to identify session-related tables
   return "session_" + hashed_host
 
@@ -252,10 +275,10 @@ def get_all_stored_shellshock(url, http_request_method):
     with _session_connection() as conn:
       if not table_exists(conn, table):
         return found
-      like_url = "%" + escape_like(split_url(url)) + "%"
-      query = ("SELECT http_header, payload FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND "
+      clause, url_params = url_match(url)
+      query = ("SELECT http_header, payload FROM \"" + table + "\" WHERE " + clause + " AND "
                "technique = ? AND http_request_method = ?;")
-      cursor = conn.execute(query, (like_url, "shellshock injection technique", http_request_method))
+      cursor = conn.execute(query, url_params + ("shellshock injection technique", http_request_method))
       found = [(row[0], row[1]) for row in cursor.fetchall()]
     return found
   except Exception:
@@ -272,9 +295,9 @@ def has_stored_shellshock(url):
     with _session_connection() as conn:
       if not table_exists(conn, table):
         return False
-      like_url = "%" + escape_like(split_url(url)) + "%"
-      query = "SELECT 1 FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND technique = ? LIMIT 1;"
-      cursor = conn.execute(query, (like_url, "shellshock injection technique"))
+      clause, url_params = url_match(url)
+      query = "SELECT 1 FROM \"" + table + "\" WHERE " + clause + " AND technique = ? LIMIT 1;"
+      cursor = conn.execute(query, url_params + ("shellshock injection technique",))
       return cursor.fetchone() is not None
   except Exception:
     return False
@@ -289,8 +312,8 @@ def applied_techniques(url, http_request_method):
     with _session_connection() as conn:
       table = table_name(url) + "_ip"
       if table_exists(conn, table):
-        query = "SELECT technique FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\';"
-        cursor = conn.execute(query, ("%" + escape_like(split_url(url)) + "%",)).fetchall()
+        query = "SELECT technique FROM \"" + table + "\" WHERE " + clause + ";"
+        cursor = conn.execute(query, url_params).fetchall()
         for session in cursor:
           technique_info = session[0]
           letter = technique_letter(technique_info)
@@ -314,8 +337,8 @@ def applied_levels(url, http_request_method):
     with _session_connection() as conn:
       table = table_name(url) + "_ip"
       if table_exists(conn, table):
-        query = "SELECT http_header, is_vulnerable FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\';"
-        cursor = conn.execute(query, ("%" + escape_like(split_url(url)) + "%",)).fetchall()
+        query = "SELECT http_header, is_vulnerable FROM \"" + table + "\" WHERE " + clause + ";"
+        cursor = conn.execute(query, url_params).fetchall()
         for session in cursor:
           http_header = session[0]
           level = int(session[1])
@@ -355,9 +378,9 @@ def has_any_stored_technique(url, http_request_method):
       if not table_exists(conn, table):
         return False
       cursor = conn.cursor()
-      like_url = "%" + escape_like(split_url(url)) + "%"
-      query = "SELECT technique FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND http_request_method = ?;"
-      cursor.execute(query, (like_url, http_request_method))
+      clause, url_params = url_match(url)
+      query = "SELECT technique FROM \"" + table + "\" WHERE " + clause + " AND http_request_method = ?;"
+      cursor.execute(query, url_params + (http_request_method,))
       return any(not menu.options.tech or (technique_letter(row[0]) and technique_letter(row[0]) in menu.options.tech) for row in cursor.fetchall())
   except (sqlite3.OperationalError, sqlite3.DatabaseError):
     return False
@@ -385,9 +408,9 @@ def check_stored_injection_points(url, check_parameter, http_request_method):
       cursor = conn.cursor()
 
       # Fetch stored sessions for matching URL
-      like_url = "%" + escape_like(split_url(url)) + "%"
-      query = "SELECT * FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\';"
-      cursor.execute(query, (like_url,))
+      base_url = split_url(url)
+      query = "SELECT * FROM \"" + table + "\" WHERE (url = ? OR url LIKE ? ESCAPE '\\');"
+      cursor.execute(query, (base_url, escape_like(base_url) + "?%"))
       sessions = cursor.fetchall()
 
       for session in sessions:
@@ -408,11 +431,11 @@ def check_stored_injection_points(url, check_parameter, http_request_method):
           vuln_parameter = vuln_param or http_header
           session_url = session[1]
 
-        cookie = session[20] if len(session) > 20 else None
-        if cookie:
-          if settings.INJECT_TAG in cookie:
-            settings.COOKIE_INJECTION = True
-          menu.options.cookie = cookie
+          cookie = restore_option(session[20] if len(session) > 20 else None, settings.USER_APPLIED_COOKIE, "cookie")
+          if cookie:
+            if settings.INJECT_TAG in cookie:
+              settings.COOKIE_INJECTION = True
+            menu.options.cookie = cookie
 
     if found:
       settings.LOAD_SESSION = True
@@ -441,14 +464,18 @@ def load_stored_techniques(url, check_parameter, http_request_method):
         return stored
 
       cursor = conn.cursor()
-      like_url = "%" + escape_like(split_url(url)) + "%"
-      query = "SELECT * FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND http_request_method = ?;"
-      cursor.execute(query, (like_url, http_request_method))
+      base_url = split_url(url)
+      query = "SELECT * FROM \"" + table + "\" WHERE (url = ? OR url LIKE ? ESCAPE '\\') AND http_request_method = ?;"
+      cursor.execute(query, (base_url, escape_like(base_url) + "?%", http_request_method))
 
       for session in cursor.fetchall():
         row = session[1:]
         technique, vuln_parameter, http_header = row[1], row[5], row[11]
-        if check_parameter not in (vuln_parameter, http_header) or not technique_letter(technique):
+        letter = technique_letter(technique)
+        if check_parameter not in (vuln_parameter, http_header) or not letter:
+          continue
+        # A technique this run was not asked to test is not resumed, nor reported as resumed.
+        if len(menu.options.tech) != 0 and letter not in menu.options.tech:
           continue
         stored[technique] = row
     return {_: stored[_] for _ in settings.TECHNIQUE_ORDER if _ in stored}
@@ -469,8 +496,10 @@ def apply_stored_technique(row):
 
   if http_header:
     settings.HTTP_HEADER = http_header
+  cookie = restore_option(cookie, settings.USER_APPLIED_COOKIE, "cookie")
   if cookie:
     menu.options.cookie = cookie
+  data = restore_option(data, settings.USER_APPLIED_DATA, "POST data")
   if data:
     settings.IGNORE_USER_DEFINED_POST_DATA = False
     menu.options.data = data
@@ -489,7 +518,8 @@ def apply_stored_technique(row):
                   "which differs from the '--os' value provided now ('" + menu.options.os.title() +
                   "'). Using the stored value to replay this technique consistently.")
       settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
-    settings.TARGET_OS = target_os
+    # Stored as text, restored as one of the two values the rest of the code compares against.
+    settings.TARGET_OS = settings.OS.WINDOWS if target_os.lower() == settings.OS.WINDOWS else settings.OS.UNIX
 
   return (url, technique, injection_type, separator, shell, vuln_parameter, prefix, suffix,
           TAG, interpreter, payload, http_request_method, url_time_response, timesec,
@@ -505,10 +535,10 @@ def check_file_deleted(url, technique, vuln_parameter, http_request_method):
       if not table_exists(conn, table):
         return False
       cursor = conn.cursor()
-      like_url = "%" + escape_like(split_url(url)) + "%"
-      query = ("SELECT file_deleted FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND technique = ? AND "
+      clause, url_params = url_match(url)
+      query = ("SELECT file_deleted FROM \"" + table + "\" WHERE " + clause + " AND technique = ? AND "
                "(vuln_parameter = ? OR http_header = ?) AND http_request_method = ? LIMIT 1;")
-      cursor.execute(query, (like_url, technique, vuln_parameter, vuln_parameter, http_request_method))
+      cursor.execute(query, url_params + (technique, vuln_parameter, vuln_parameter, http_request_method))
       row = cursor.fetchone()
       return bool(row and row[0])
   except Exception:
@@ -523,10 +553,10 @@ def mark_file_deleted(url, technique, vuln_parameter, http_request_method):
       table = table_name(url) + "_ip"
       if not table_exists(conn, table):
         return
-      like_url = "%" + escape_like(split_url(url)) + "%"
-      conn.execute("UPDATE \"" + table + "\" SET file_deleted = '1' WHERE url LIKE ? ESCAPE '\\' AND technique = ? AND "
+      clause, url_params = url_match(url)
+      conn.execute("UPDATE \"" + table + "\" SET file_deleted = '1' WHERE " + clause + " AND technique = ? AND "
                    "(vuln_parameter = ? OR http_header = ?) AND http_request_method = ?;",
-                   (like_url, technique, vuln_parameter, vuln_parameter, http_request_method))
+                   url_params + (technique, vuln_parameter, vuln_parameter, http_request_method))
       conn.commit()
   except Exception:
     pass
@@ -701,9 +731,9 @@ def export_valid_credentials(url, authentication_type):
   try:
     with _session_connection() as conn:
       table = table_name(url) + "_creds"
-      like_url = "%" + escape_like(split_url(url)) + "%"
-      query = "SELECT username, password FROM \"" + table + "\" WHERE url LIKE ? ESCAPE '\\' AND authentication_type = ?;"
-      cursor = conn.execute(query, (like_url, authentication_type)).fetchall()
+      clause, url_params = url_match(url)
+      query = "SELECT username, password FROM \"" + table + "\" WHERE " + clause + " AND authentication_type = ?;"
+      cursor = conn.execute(query, url_params + (authentication_type,)).fetchall()
     if cursor:
       return ":".join(cursor[0])
   except (sqlite3.OperationalError, sqlite3.DatabaseError):

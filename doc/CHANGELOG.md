@@ -1,4 +1,5 @@
 ## Version 4.2 (TBA)
+* Fixed: Several issues affecting the response-time model, the identification of the target's operating system, stored session data, and the files left on the target.
 * Fixed: Several issues affecting the parsing of the provided request data and the placement of the injection point.
 * Fixed: A parameter given with `-p` no longer stops anti-CSRF parameters from being skipped everywhere else.
 * Fixed: HTTP error codes met during a scan are no longer added to the list of codes given with `--ignore-code`.

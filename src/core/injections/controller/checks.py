@@ -377,6 +377,21 @@ def flush_os_shell_suggestion():
   settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
 """
+What every target is owed once it is done with, whether or not the run ends here: the out-of-band
+channel is closed and the file left for the command output is offered for deletion. Separate from
+quit(), which always raises - so with several targets this never used to be reached at all.
+"""
+def finish_target():
+  close_oob_channel()
+  for cleanup_fn in list(settings.PENDING_FILE_CLEANUPS.values()):
+    cleanup_fn()
+  settings.PENDING_FILE_CLEANUPS.clear()
+  if settings.LEFTOVER_FILES:
+    info_msg = "Files left behind: " + ", ".join(settings.LEFTOVER_FILES) + "."
+    settings.print_data_to_stdout(settings.print_info_msg(info_msg))
+    del settings.LEFTOVER_FILES[:]
+
+"""
 Quit - hard_exit ends the process immediately (os._exit), otherwise SystemExit unwinds normally.
 """
 def quit(filename, url, hard_exit):
@@ -393,11 +408,7 @@ def quit(filename, url, hard_exit):
     entry = settings.PENDING_OS_SHELL_ENTRY
     settings.PENDING_OS_SHELL_ENTRY = None
     entry()
-  close_oob_channel()
-  # Only ask to delete the output file now, at actual exit.
-  for cleanup_fn in list(settings.PENDING_FILE_CLEANUPS.values()):
-    cleanup_fn()
-  settings.PENDING_FILE_CLEANUPS.clear()
+  finish_target()
   if settings.LOAD_SESSION and not settings.LOGS_NOTIFICATION_SHOWN:
     settings.LOGS_NOTIFICATION_SHOWN = True
     logs.logs_notification(filename)
@@ -1431,13 +1442,43 @@ def define_target_os():
         pass
 
 """
+The one name the target's operating system is given, wherever it is printed.
+"""
+def target_os_label():
+  return settings.OS.WINDOWS.title() if settings.TARGET_OS == settings.OS.WINDOWS else "Unix-like shell"
+
+"""
+Record an identified operating system. Every check that fingerprints one comes through here, so the
+value stored is always one of the two the rest of the code compares against - a server banner naming
+a distribution is a name for that banner, not for the operating system - and a user who named their
+own with '--os' is asked about a disagreement once, rather than being overruled by whichever check
+happened to run last.
+"""
+def set_target_os(identified):
+  if not identified:
+    return
+  identified = settings.OS.WINDOWS if re.search(r"microsoft|win", identified, re.IGNORECASE) else settings.OS.UNIX
+  settings.TARGET_OS = identified
+  settings.IDENTIFIED_TARGET_OS = True
+  if menu.options.os:
+    user_os = settings.OS.WINDOWS if menu.options.os.lower() == settings.OS.WINDOWS else settings.OS.UNIX
+    if user_os != identified and identified_os():
+      settings.TARGET_OS = user_os
+
+"""
 Decision if the user-defined operating system name,
 is different than the one identified by heuristics.
 """
 def identified_os():
+    # Asked once; every target after that is answered with what was decided then, rather than with
+    # nothing - which read as 'keep the identified one' and quietly dropped the user's own '--os'.
+    if settings.IGNORE_IDENTIFIED_TARGET_OS is not None:
+      return settings.IGNORE_IDENTIFIED_TARGET_OS
     if settings.IGNORE_IDENTIFIED_TARGET_OS == None:
+      # Named the way the heuristics name it, so whichever check spotted the difference, the two
+      # messages read as the one finding rather than as two operating systems.
       warn_msg = "Identified a different operating system (i.e. '"
-      warn_msg += settings.TARGET_OS.title() + "') than the one you defined (i.e. '" + menu.options.os.title() + "')."
+      warn_msg += target_os_label() + "') than the one you defined (i.e. '" + menu.options.os.title() + "')."
       settings.print_data_to_stdout(settings.print_bold_warning_msg(warn_msg))
       message = "How do you want to proceed? [(C)ontinue/(s)kip] "
       while True:
@@ -1598,7 +1639,6 @@ def record_probe_response_time(exec_time):
   settings.PROBE_RESPONSE_TIMES.append(exec_time)
   if len(settings.PROBE_RESPONSE_TIMES) > settings.MAX_TIME_RESPONSES:
     settings.PROBE_RESPONSE_TIMES[:] = settings.PROBE_RESPONSE_TIMES[-(settings.MAX_TIME_RESPONSES // 2):]
-  record_baseline_response_time(exec_time)
 
 """
 Record a plain request's response time
@@ -1617,7 +1657,12 @@ def warm_up_response_baseline(url, http_request_method):
   warn_msg = "Time-related response comparison requires a larger statistical model"
   warn_msg += "." if settings.VERBOSITY_LEVEL != 0 else ", please wait..."
   settings.print_data_to_stdout(settings.END_LINE.CR + settings.print_warning_msg(warn_msg))
-  while len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES:
+  # A target that has stopped answering returns nothing to record, and the model would never fill:
+  # every sample is given a turn, and the ones that failed are not asked for again forever.
+  attempts = 0
+  max_attempts = settings.MIN_TIME_RESPONSES * 2
+  while len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES and attempts < max_attempts:
+    attempts += 1
     sample = requests.quick_response_time_sample(url, http_request_method)
     if sample is not None:
       record_baseline_response_time(sample)
@@ -1625,6 +1670,11 @@ def warm_up_response_baseline(url, http_request_method):
       settings.print_data_to_stdout(".")
   if settings.VERBOSITY_LEVEL == 0:
     settings.print_data_to_stdout(" (done)")
+  if len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES:
+    warn_msg = "The target answered " + str(len(settings.RESPONSE_TIMES)) + " of the "
+    warn_msg += str(settings.MIN_TIME_RESPONSES) + " requests the response-time model asks for. "
+    warn_msg += "Time-related results are read against what was collected."
+    settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
     settings.close_progress_line()
   check_lagging()
 
@@ -1632,9 +1682,11 @@ def warm_up_response_baseline(url, http_request_method):
 Warns once (whichever call site reaches it first) if the connection is already too jittery to trust automatically, and disables timesec auto-shrinking for the rest of the run. Returns True if lagging is (or was already found to be) detected.
 """
 def check_lagging():
-  if not settings.LAGGING_CHECKED:
+  # Settled once, but not off whatever two samples happened to be in hand: a spread read that early
+  # says more about the pair than about the connection, so the verdict waits for a model to read.
+  if not settings.LAGGING_CHECKED and len(settings.RESPONSE_TIMES) >= settings.MIN_TIME_RESPONSES // 2:
     settings.LAGGING_CHECKED = True
-    if len(settings.RESPONSE_TIMES) > 1 and statistics.pstdev(settings.RESPONSE_TIMES) > settings.WARN_TIME_STDEV:
+    if statistics.pstdev(settings.RESPONSE_TIMES) > settings.WARN_TIME_STDEV:
       settings.LAGGING_DETECTED = settings.JITTER_SEEN = settings.ADJUST_TIME_DELAY_DISABLED = True
       warn_msg = "Detected considerable lagging in the connection response(s). "
       warn_msg += "Consider using a higher '--time-sec' value (e.g. '10' or more)."
@@ -1656,15 +1708,16 @@ def _delay_threshold_from(times):
   return max(settings.MIN_VALID_DELAYED_RESPONSE, mean + margin)
 
 def current_delay_threshold():
-  threshold = _delay_threshold_from(settings.RESPONSE_TIMES)
   # The payload costs more than a plain request - on the file-based path, two PowerShell launches
-  # more. Measured against a model those plain requests are also in, the threshold lands under what
-  # the payload costs with nothing held back, and every probe then reads as delayed.
+  # more - so what it costs with nothing held back is the only thing a probe can be judged against.
+  # The plain model answers only until enough probes have been seen to have one of their own; the
+  # two are never pooled, since a spread that wide reads as deviation and lifts the threshold above
+  # the delay it exists to catch.
   if len(settings.PROBE_RESPONSE_TIMES) >= settings.MIN_PROBE_RESPONSES:
     probe_threshold = _delay_threshold_from(settings.PROBE_RESPONSE_TIMES)
     if probe_threshold is not None:
-      threshold = probe_threshold if threshold is None else max(threshold, probe_threshold)
-  return threshold
+      return probe_threshold
+  return _delay_threshold_from(settings.RESPONSE_TIMES)
 
 """
 Time related shell condition. Uses the adaptive threshold once available, else a fixed one.
@@ -3616,9 +3669,37 @@ def announce_vulnerable_finding(filename, injection_type, technique, the_type, h
 
   info_msg = settings.CHECKING_PARAMETER + " appears to be injectable via " + type_prefix + technique_label(injection_type, technique) + "."
   settings.print_data_to_stdout(settings.print_bold_info_msg(info_msg))
+  announce_leftover_file(technique)
   decoded_payload = str(url_decode(payload)) if decode_payload else payload
   if not settings.LOAD_SESSION:
     settings.CONFIRMED_INJECTION_POINTS.append((technique, injection_type, vuln_parameter, decoded_payload, display_method, settings.TOTAL_OF_REQUESTS, title))
+
+"""
+Whether the output file still answers on its URL. Only the file-based technique has one to ask, so
+anything else is reported as unconfirmed rather than guessed at.
+"""
+def output_file_still_served():
+  if not settings.DEFINED_WEBROOT:
+    return False
+  from src.core.requests import requests
+  try:
+    request = _urllib.request.Request(settings.DEFINED_WEBROOT)
+    headers.do_check(request)
+    response = requests.get_request_response(request)
+    return bool(response) and not isinstance(response, bool)
+  except Exception:
+    return False
+
+"""
+Name the file this technique leaves in the target's document root, and the URL it answers on - it is
+written there to carry the command output and is not removed on its own.
+"""
+def announce_leftover_file(technique):
+  if technique != settings.INJECTION_TECHNIQUE.FILE_BASED or not settings.DEFINED_WEBROOT:
+    return
+  written = settings.WEB_ROOT + settings.DEFINED_WEBROOT.split("/")[-1]
+  if written not in settings.LEFTOVER_FILES:
+    settings.LEFTOVER_FILES.append(written)
 
 """
 Finalize injection process

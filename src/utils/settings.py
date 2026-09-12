@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "121"
+REVISION = "122"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -723,6 +723,8 @@ CUSTOM_FILENAME = ""
 USER_APPLIED_WEB_ROOT = False
 
 # Whether '--auth-cred'/'--auth-type' were explicitly supplied on the CLI
+USER_APPLIED_COOKIE = ""
+USER_APPLIED_DATA = ""
 USER_APPLIED_AUTH_CRED = False
 USER_APPLIED_AUTH_TYPE = False
 
@@ -1316,6 +1318,9 @@ LIKELY_RESUME = False
 STORED_TECHNIQUES = {}
 # Pending file/tempfile-based cleanups, asked at quit() - keyed by output file path.
 PENDING_FILE_CLEANUPS = {}
+
+# Output files written on the target, listed once per target when it is done with.
+LEFTOVER_FILES = []
 # Findings confirmed this run, for the end-of-run summary.
 CONFIRMED_INJECTION_POINTS = []
 # (prefix, suffix, separator, whitespace) confirmed by one technique, tried first by the others.
@@ -1688,6 +1693,10 @@ SETTINGS_PATH = os.path.abspath("src/utils/settings.py")
 
 # Period after last-update to start nagging (about the old revision).
 NAGGING_DAYS = 31
+
+# Stamp of the stored-session layout, part of every table name so that entries written by an
+# earlier layout are never read back into a newer one; bump it whenever that layout changes.
+SESSION_MILESTONE_VALUE = "sBxrpPDiKF"
 
 TARGET_URL = ""
 # Host:port (matches session_handler.table_name()'s hashing), unlike TARGET_URL above.

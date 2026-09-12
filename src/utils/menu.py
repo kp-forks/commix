@@ -784,6 +784,8 @@ settings.USER_APPLIED_WEB_ROOT = bool(options.web_root)
 settings.USER_APPLIED_RETRIES = any(_ in sys.argv for _ in ("--retries",)) or any(_.startswith("--retries=") for _ in sys.argv)
 
 # Remember whether '--auth-cred'/'--auth-type' were explicitly supplied on the CLI
+settings.USER_APPLIED_COOKIE = options.cookie or ""
+settings.USER_APPLIED_DATA = options.data or ""
 settings.USER_APPLIED_AUTH_CRED = bool(options.auth_cred)
 settings.USER_APPLIED_AUTH_TYPE = bool(options.auth_type)
 

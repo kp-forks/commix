@@ -366,6 +366,24 @@ def init_injection(url):
   if menu.options.tamper:
     checks.perform_payload_modification(payload="")
 
+  # A response-time model measures one target's latency, and says nothing about the next one's.
+  # The same goes for what was concluded from it: the lagging verdict, the concurrency baseline and
+  # the delay already reported as safe.
+  del settings.RESPONSE_TIMES[:]
+  del settings.PROBE_RESPONSE_TIMES[:]
+  settings.URL_TIME_RESPONSE = 0
+  settings.BASELINE_TARGET = None
+  settings.LAGGING_CHECKED = False
+  settings.LAGGING_DETECTED = False
+  settings.CONCURRENT_BASELINE = False
+  settings.REPORTED_MIN_SAFE_TIMESEC = None
+  settings.IDENTIFIED_COMMAND_INJECTION = False
+  settings.IDENTIFIED_TARGET_OS = False
+  # An operating system worked out for one target is not the next one's - unless the user named it.
+  if not menu.options.os:
+    settings.TARGET_OS = settings.OS.UNIX
+    settings.CHECK_BOTH_OS = False
+
   # Reset web-root state
   settings.WEB_ROOT = ""
   settings.DEFAULT_WEB_ROOT = ""

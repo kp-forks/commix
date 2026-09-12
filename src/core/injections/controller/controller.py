@@ -206,10 +206,7 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter,
             if match:
               settings.IDENTIFIED_COMMAND_INJECTION = True
               possible_os = ('Unix-like shell', 'Windows')[_ != 1]
-              if settings.OS.UNIX.lower() in possible_os.lower():
-                settings.TARGET_OS = settings.OS.UNIX
-              else:
-                settings.TARGET_OS = settings.OS.WINDOWS
+              checks.set_target_os(possible_os)
               announce_heuristic_finding(possible_os)
               settings.SKIP_CODE_INJECTIONS = True
               break
@@ -492,14 +489,29 @@ def check_parameter_dynamism(url, http_request_method, check_parameter):
   settings.print_data_to_stdout(settings.print_info_msg(info_msg))
 
   placeholder = ''.join(random.choice(string.ascii_uppercase) for _ in range(3))
-  try:
-    real_body = _urllib.request.urlopen(fetch(settings.TESTABLE_VALUE), timeout=settings.TIMEOUT).read()
-    placeholder_body = _urllib.request.urlopen(fetch(placeholder), timeout=settings.TIMEOUT).read()
-  except Exception:
+
+  # Sent the way every other request is, so the pacing, retries and error handling that hold for
+  # the scan hold here too.
+  def _body(value):
+    response = requests.get_request_response(fetch(value))
+    if not response or isinstance(response, bool):
+      return None
+    try:
+      return response.read()
+    except Exception:
+      return None
+
+  real_body = _body(settings.TESTABLE_VALUE)
+  # The same value asked for twice: whatever differs between these two is the page moving on its
+  # own, and a parameter is only dynamic where it changes the response by more than that.
+  repeat_body = _body(settings.TESTABLE_VALUE)
+  placeholder_body = _body(placeholder)
+  if real_body is None or repeat_body is None or placeholder_body is None:
     return
 
-  ratio = difflib.SequenceMatcher(None, real_body, placeholder_body).ratio()
-  if ratio >= settings.STABILITY_SIMILARITY_THRESHOLD:
+  noise = difflib.SequenceMatcher(None, real_body, repeat_body).ratio()
+  changed = difflib.SequenceMatcher(None, real_body, placeholder_body).ratio()
+  if changed >= min(noise, settings.STABILITY_SIMILARITY_THRESHOLD):
     warn_msg = param_label + " does not appear to be dynamic."
     settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
 
@@ -1293,6 +1305,7 @@ def do_check(url, http_request_method, filename):
         common.show_http_error_codes()
         raise SystemExit()
     elif settings.MULTI_TARGETS:
+      checks.finish_target()
       logs.print_logs_notification(filename, url)
     else:
       # Summary, deferred actions, os-shell entry, log notice and exit all happen in quit().

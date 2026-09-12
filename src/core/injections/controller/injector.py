@@ -131,8 +131,10 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
     # What a probe costs is a property of the command being asked, so the previous one's sample is
     # dropped rather than left to answer for this one.
     del settings.PROBE_RESPONSE_TIMES[:]
-    if len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES or \
-       len(settings.PROBE_RESPONSE_TIMES) < settings.MIN_PROBE_RESPONSES:
+    # Each model is filled from its own kind of request: the probes below cannot stand in for plain
+    # ones, and pooling them is what lifts the threshold above the delay it is meant to catch.
+    checks.warm_up_response_baseline(url, http_request_method)
+    if len(settings.PROBE_RESPONSE_TIMES) < settings.MIN_PROBE_RESPONSES:
       # Silent where the caller has just said what it is taking the model again for: the dots
       # carry on under that line instead of repeating it.
       if announce:
@@ -152,8 +154,7 @@ def time_related_injection(separator, maxlen, TAG, cmd, prefix, suffix, whitespa
         if settings.VERBOSITY_LEVEL == 0:
           settings.print_data_to_stdout(".")
 
-      while len(settings.RESPONSE_TIMES) < settings.MIN_TIME_RESPONSES or \
-            len(settings.PROBE_RESPONSE_TIMES) < settings.MIN_PROBE_RESPONSES:
+      while len(settings.PROBE_RESPONSE_TIMES) < settings.MIN_PROBE_RESPONSES:
         try:
           if fan_out > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=fan_out) as executor:

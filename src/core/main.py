@@ -467,6 +467,9 @@ def scan_parsed_targets(os_checks_num):
   targets = settings.MULTI_REQUEST_TARGETS
   filename = None
   for target_num, target in enumerate(targets, start=1):
+    # What the last target turned out to be is dropped before this one is applied, so it starts
+    # from what the user asked for.
+    settings.reset_target_state(menu.options)
     parser.apply_target(target)
     url = menu.options.url
     http_request_method = checks.check_http_method(url)
@@ -1356,6 +1359,7 @@ try:
           # Reset the injection level
           if settings.INJECTION_LEVEL > settings.HTTP_HEADER_INJECTION_LEVEL:
             settings.INJECTION_LEVEL = 1
+          settings.reset_target_state(menu.options)
           menu.options.url = form_url
           menu.options.data = form_data
           settings.USER_DEFINED_POST_DATA = form_data
@@ -1427,6 +1431,7 @@ try:
               # Reset the injection level
               if settings.INJECTION_LEVEL > settings.HTTP_HEADER_INJECTION_LEVEL:
                 settings.INJECTION_LEVEL = 1
+              settings.reset_target_state(menu.options)
               menu.options.url = url
               init_injection(url)
               try:

@@ -328,7 +328,7 @@ APPLICATION = "commix"
 DESCRIPTION_FULL = "Automated All-in-One OS Command Injection Exploitation Tool"
 AUTHOR  = "Anastasios Stasinopoulos"
 VERSION_NUM = "4.2"
-REVISION = "124"
+REVISION = "125"
 STABLE_RELEASE = False
 VERSION = "v"
 if STABLE_RELEASE:
@@ -1824,3 +1824,83 @@ ALERT = False
 PCRE_MODIFIER = "/e"
 
 # eof
+
+"""
+State that belongs to the run and not to any one target: what the user asked for on the command
+line, what has already been answered once and should not be asked again, and the tallies kept
+across every target. Everything else is taken back to what it held before the first target, so
+that nothing worked out about one target is read as true of the next. A new name is per-target
+unless it is listed here - the omission that used to leak is now the safe direction.
+"""
+RUN_WIDE_STATE = frozenset((
+  # Asked for on the command line, or worked out from it before any target was touched.
+  "ABORT_CODE", "ALERT", "ANSWERS", "CHECK_FOR_UPDATES_ON_START", "CHECK_INTERNET",
+  "CHECK_INTERNET_ADDRESS", "CLI_HISTORY", "CONNECTION_ERROR_RETRIES", "COOKIE_PARAM_DELIMITER",
+  "DEFAULT_CODEC", "DEFAULT_CRAWLING_DEPTH", "DEFAULT_PAGE_ENCODING", "DELAY", "EXTRA_HTTP_HEADERS",
+  "HTTP_METHOD", "IGNORE_CODE", "INJECT_TAG", "KEEP_ALIVE", "LHOST", "LINUX_PYTHON_INTERPRETER",
+  "LPORT", "MAXLEN", "MAX_RETRIES", "METASPLOIT_PATH", "OOB_IGNORE_TIMEOUT", "OOB_POLL_INTERVAL",
+  "OOB_PORT", "OOB_SCHEME", "OOB_SERVER", "OOB_TOKEN", "OOB_TRANSPORT", "PERFORM_CRACKING",
+  "POST_CUSTOM_INJECTION_MARKER_CHAR", "PRE_CUSTOM_INJECTION_MARKER_CHAR", "RAW_HTTP_HEADERS",
+  "REPORT_JSON", "RHOST", "SKIP_CALC", "SKIP_PARAMETERS_LIST", "SKIP_TECHNIQUES", "SRVPORT",
+  "THREADS", "TIMEOUT", "TMP_PATH", "TOR_HTTP_PROXY_PORT", "URIPATH", "URL_PARAM_DELIMITER",
+  "URL_RELOAD", "USER_DEFINED_PHP_DIR", "USER_DEFINED_PYTHON_DIR", "USER_DEFINED_PYTHON_INTERPRETER",
+  "VERBOSITY_LEVEL", "WIN_PHP_DIR", "WIN_PYTHON_INTERPRETER",
+  "USER_APPLIED_AUTH_CRED", "USER_APPLIED_AUTH_TYPE", "USER_APPLIED_CMD", "USER_APPLIED_COOKIE",
+  "USER_APPLIED_DATA", "USER_APPLIED_LEVEL", "USER_APPLIED_RETRIES", "USER_APPLIED_TAMPER",
+  "USER_APPLIED_TECHNIQUE", "USER_APPLIED_WEB_ROOT",
+  # Answered once by the user, and not worth asking again for every target.
+  "ADJUST_TIME_DELAY_CHOICE", "IGNORE_IDENTIFIED_TARGET_OS", "RECOGNISE_OS",
+  "THREADED_TIME_RETRIEVAL_CHOICE", "USE_BIN_SUBDIR_CHOICE", "WAF_EVASION_CONSENT",
+  # Counted or noted for the run as a whole.
+  "CRAWLED_SKIPPED_URLS_NUM", "CRAWLED_URLS_INJECTED", "CRAWLED_URLS_NUM", "CRAWLING",
+  "CRAWLING_PHASE", "ENUMERATION_DONE", "FILE_ACCESS_DONE", "HANDLER", "HREF_SKIPPED",
+  "HTTP_ERROR_CODES_SUM", "IDENTIFIED_WARNINGS", "INIT_TEST", "LAST_DOT_BUCKET", "LAST_LOG_GROUP",
+  "LAST_LOGGED_PARAMETER", "LAST_SELECTED_MODULE", "LIKELY_RESUME", "LOGGED_FINDINGS_HEADER",
+  "MULTI_REQUEST_TARGETS", "MULTI_TARGETS", "OS_CHECKS_NUM", "PROGRESS_LINE_OPEN", "READLINE_ERROR",
+  "SESSION_FILE", "SHOW_LOGS_MSG", "SITEMAP_CHECK", "SKIPPED_OUT_OF_SCOPE", "SKIP_VULNERABLE_HOST",
+  "STDIN_PARSING", "TAMPER_WARNING_SHOWN", "TIME_RELATED_ATTACK_WARNING", "TOTAL_OF_REQUESTS",
+  "VALIDATION_RUN", "VISIBLE_CONNECTION_ERRORS", "WARNED_HTTP_ERROR_CODES",
+  # Set by the connection to whichever target is in hand, before this reset can be reached.
+  "HOSTNAME", "SCHEME", "TARGET_NETLOC", "TARGET_URL",
+))
+
+"""
+Options a target's own testing can change - a stored session replaces them, a technique settles a
+directory - and which the next target is entitled to see as the user left them.
+"""
+RESTORED_OPTIONS = ("cookie", "data", "tamper", "os", "web_root", "tmp_path", "timesec",
+                    "auth_cred", "auth_type", "level")
+
+_TARGET_STATE_BASELINE = {}
+_OPTIONS_BASELINE = {}
+# Only values that can be copied without carrying a live object along with them.
+_COPYABLE = (str, int, float, bool, type(None), list, dict, set, tuple, frozenset)
+
+"""
+Take the per-target state back to what it was before the first target was touched. The first call
+records that baseline - at that point nothing has been learned yet - and every call after it
+restores. Names listed in 'RUN_WIDE_STATE' are left alone.
+"""
+def reset_target_state(options=None):
+  import copy
+  if not _TARGET_STATE_BASELINE:
+    for name, value in list(globals().items()):
+      if not name.isupper() or name.startswith("_") or name in RUN_WIDE_STATE:
+        continue
+      if not isinstance(value, _COPYABLE):
+        continue
+      try:
+        _TARGET_STATE_BASELINE[name] = copy.deepcopy(value)
+      except Exception:
+        continue
+    if options is not None:
+      for name in RESTORED_OPTIONS:
+        if hasattr(options, name):
+          _OPTIONS_BASELINE[name] = copy.deepcopy(getattr(options, name))
+    return
+
+  for name, value in _TARGET_STATE_BASELINE.items():
+    globals()[name] = copy.deepcopy(value)
+  if options is not None:
+    for name, value in _OPTIONS_BASELINE.items():
+      setattr(options, name, copy.deepcopy(value))

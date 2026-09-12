@@ -1458,12 +1458,17 @@ def set_target_os(identified):
   if not identified:
     return
   identified = settings.OS.WINDOWS if re.search(r"microsoft|win", identified, re.IGNORECASE) else settings.OS.UNIX
+  previous = settings.TARGET_OS
   settings.TARGET_OS = identified
   settings.IDENTIFIED_TARGET_OS = True
   if menu.options.os:
     user_os = settings.OS.WINDOWS if menu.options.os.lower() == settings.OS.WINDOWS else settings.OS.UNIX
     if user_os != identified and identified_os():
       settings.TARGET_OS = user_os
+  # A document root guessed before the operating system was settled is not one now.
+  if settings.TARGET_OS != previous and not settings.USER_APPLIED_WEB_ROOT and not settings.CUSTOM_WEB_ROOT:
+    if not web_root_matches_os(settings.WEB_ROOT):
+      settings.WEB_ROOT = settings.DEFAULT_WEB_ROOT = ""
 
 """
 Decision if the user-defined operating system name,
@@ -3715,6 +3720,16 @@ def finalize(exit_loops, no_result, i, total, injection_type, technique, shell):
     return False
 
 """
+Whether a directory path belongs to the operating system currently in use - a root worked out for
+one is not a path on the other, and offering it leads to a write that cannot land.
+"""
+def web_root_matches_os(path):
+  if not path:
+    return True
+  looks_windows = bool(re.match(r"\A[A-Za-z]:[\\/]", path))
+  return looks_windows == (settings.TARGET_OS == settings.OS.WINDOWS)
+
+"""
 Normalize a directory path for the target OS
 """
 def normalize_target_dir(path):
@@ -3735,8 +3750,9 @@ Provide custom server's root directory
 """
 def custom_web_root(url, timesec, filename, http_request_method, url_time_response):
   if not settings.CUSTOM_WEB_ROOT:
-    # Prefer the already-detected default over the generic one.
-    if settings.WEB_ROOT:
+    # Prefer the already-detected default over the generic one, but only while it still belongs to
+    # the operating system in use: the two disagree whenever that was settled after the root was.
+    if settings.WEB_ROOT and web_root_matches_os(settings.WEB_ROOT):
       default_root_dir = settings.WEB_ROOT
     elif settings.TARGET_OS == settings.OS.WINDOWS :
       default_root_dir = settings.WINDOWS_DEFAULT_DOC_ROOTS[0]
